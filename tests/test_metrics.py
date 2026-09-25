@@ -56,3 +56,19 @@ def test_buy_and_hold(cfg):
     expected = (1 - round_trip_cost(cfg)) * (1.10 + 0.90) / 2 - 1
     assert stats["net_return"] == pytest.approx(expected)
     assert stats["exposure"] == 1.0 and eq.index[0] == idx[0]
+
+
+def test_random_baseline_same_trade_count(cfg):
+    from test_backtest import sig
+    from src.decision import LONG
+    from src.labels import LOSS, WIN
+    rows = [sig(h * 13, LONG, WIN if h % 3 == 0 else LOSS) for h in range(40)]
+    for r in rows:                       # give both sides outcomes so a random side is meaningful
+        r["short_exit"], r["short_minutes"], r["short_label"] = r["long_exit"], 60, r["long_label"]
+    pool = pd.DataFrame(rows)
+    start, end = pool["time"].min(), pool["time"].max() + pd.Timedelta(hours=13)
+    summary, rets = mt.random_baseline(pool, 15, cfg, start, end)
+    assert len(rets) == 10 and summary["trades"] <= 15
+    assert summary["net_return_p05"] <= summary["net_return"] <= summary["net_return_p95"]
+    empty, none = mt.random_baseline(pool, 0, cfg, start, end)
+    assert empty["trades"] == 0 and none == []
