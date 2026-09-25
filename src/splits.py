@@ -33,6 +33,18 @@ def _ts(s: str) -> pd.Timestamp:
     return pd.Timestamp(s, tz="UTC")
 
 
+def label_end(times: pd.DatetimeIndex, cfg: Config) -> pd.DatetimeIndex:
+    """Time at which the label of each row is fully known."""
+    return times + pd.Timedelta(hours=1 + cfg.labels.horizon_h)
+
+
+def outside(times: pd.DatetimeIndex, start: pd.Timestamp, end: pd.Timestamp, cfg: Config) -> np.ndarray:
+    """True for rows whose [T, label end] interval stays ``embargo_h`` away from [start, end)."""
+    emb = pd.Timedelta(hours=cfg.splits.embargo_h)
+    ends = label_end(times, cfg)
+    return np.asarray((ends <= start - emb) | (times >= end + emb))
+
+
 def make_folds(cfg: Config) -> list[Fold]:
     sp = cfg.splits
     start, stop = _ts(sp.first_test_start), _ts(sp.holdout_start)
@@ -42,3 +54,17 @@ def make_folds(cfg: Config) -> list[Fold]:
         folds.append(Fold(k, start, end))
         start, k = end, k + 1
     return folds
+
+
+def development_mask(times: pd.DatetimeIndex, cfg: Config) -> np.ndarray:
+    """Rows that never touch the holdout period (usable for training, tuning and walk-forward)."""
+    emb = pd.Timedelta(hours=cfg.splits.embargo_h)
+    return np.asarray(label_end(times, cfg) <= _ts(cfg.splits.holdout_start) - emb)
+
+
+def fold_masks(times: pd.DatetimeIndex, fold: Fold, cfg: Config) -> tuple[np.ndarray, np.ndarray]:
+    """(train, test) boolean masks for one fold. Train is purged and embargoed; neither touches the holdout."""
+    dev = development_mask(times, cfg)
+    test = dev & np.asarray((times >= fold.test_start) & (times < fold.test_end))
+    train = dev & np.asarray(times < fold.test_start) & outside(times, fold.test_start, fold.test_end, cfg)
+    return train, test
