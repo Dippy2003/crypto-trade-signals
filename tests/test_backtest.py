@@ -54,3 +54,21 @@ def test_stop_loss_loses_about_one_percent(cfg):
 def test_leverage_cap(cfg):
     res = run([sig(0, LONG, WIN, atr=0.1)], cfg)       # 0.1% stop would need 10x notional
     assert res.trades.iloc[0]["notional"] == pytest.approx(2 * 10_000)
+
+
+def test_one_position_per_symbol(cfg):
+    rows = [sig(0, LONG, WIN, minutes=180),            # open 01:00 -> 04:00
+            sig(1, SHORT, LOSS),                       # 02:00 same symbol: skipped
+            sig(1, LONG, WIN, symbol="ETHUSDT"),       # other symbol: allowed
+            sig(3, LONG, NO_TRADE)]                    # 04:00 entry: first position just closed
+    res = run(rows, cfg)
+    assert list(res.trades["symbol"]) == ["BTCUSDT", "ETHUSDT", "BTCUSDT"]
+    assert res.skipped["position_open"] == 1
+    assert res.trades.iloc[2]["exit_reason"] == "TIMEOUT"
+
+
+def test_sizing_uses_realized_equity(cfg):
+    res = run([sig(0, LONG, WIN, minutes=30), sig(2, LONG, WIN)], cfg)
+    first, second = res.trades.iloc[0], res.trades.iloc[1]
+    assert second["equity_at_entry"] == pytest.approx(10_000 + first["pnl"])
+    assert second["notional"] == pytest.approx(second["equity_at_entry"])
