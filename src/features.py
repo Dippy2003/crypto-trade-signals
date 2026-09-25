@@ -97,3 +97,19 @@ def build_features(hourly: dict[str, pd.DataFrame], cfg: Config) -> dict[str, pd
             f = add_context(f, base[ctx], ctx)
         out[sym] = f
     return out
+
+
+def load_features(cfg: Config, symbol: str) -> pd.DataFrame:
+    return pd.read_parquet(resolve_path(cfg, "processed") / f"{symbol}_features.parquet")
+
+
+def build(cfg: Config, symbols: list[str] | None = None) -> dict[str, pd.DataFrame]:
+    proc = resolve_path(cfg, "processed")
+    symbols = symbols or [p.name.split("_")[0] for p in sorted(proc.glob("*_1h.parquet"))]
+    need = set(symbols) | ({cfg.context_symbol} if (proc / f"{cfg.context_symbol}_1h.parquet").exists() else set())
+    feats = build_features({s: load_hourly(cfg, s) for s in sorted(need)}, cfg)
+    for sym in symbols:
+        f = feats[sym]
+        f.to_parquet(proc / f"{sym}_features.parquet")
+        print(f"{sym}: {f.shape[1]} features, {f.dropna().shape[0]:,} of {len(f):,} rows complete")
+    return {s: feats[s] for s in symbols}
