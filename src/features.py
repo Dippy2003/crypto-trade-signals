@@ -111,6 +111,21 @@ def leakage_flags(corr: pd.DataFrame, max_abs_corr: float) -> list[str]:
     return sorted(corr.index[(corr.abs() > max_abs_corr).any(axis=1)])
 
 
+def leakage_report(cfg: Config, symbols: list[str]) -> str:
+    lim = cfg.features.leakage_max_abs_corr
+    lines = ["# Feature leakage check", "",
+             f"Correlation of each feature with labels and realized returns. |corr| > {lim} is flagged.", ""]
+    for sym in symbols:
+        corr = label_correlations(load_features(cfg, sym), load_labels(cfg, sym))
+        flags = leakage_flags(corr, lim)
+        top = corr.abs().max(axis=1).sort_values(ascending=False).head(10)
+        lines += [f"## {sym}", "", f"Flagged: {', '.join(flags) if flags else 'none'}", "",
+                  "| Feature | max |corr| |", "|---|---:|"]
+        lines += [f"| {k} | {v:.3f} |" for k, v in top.items()]
+        lines.append("")
+    return "\n".join(lines)
+
+
 def load_features(cfg: Config, symbol: str) -> pd.DataFrame:
     return pd.read_parquet(resolve_path(cfg, "processed") / f"{symbol}_features.parquet")
 
@@ -130,7 +145,15 @@ def build(cfg: Config, symbols: list[str] | None = None) -> dict[str, pd.DataFra
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--symbols", nargs="+")
-    build(load_config(), p.parse_args().symbols)
+    p.add_argument("--check-leakage", action="store_true",
+                   help="also write reports/leakage.md (needs labels from src.labels)")
+    a = p.parse_args()
+    cfg = load_config()
+    feats = build(cfg, a.symbols)
+    if a.check_leakage:
+        path = ensure_dir(resolve_path(cfg, "reports")) / "leakage.md"
+        path.write_text(leakage_report(cfg, list(feats)), encoding="utf-8")
+        print(f"Saved {path}")
 
 
 if __name__ == "__main__":
