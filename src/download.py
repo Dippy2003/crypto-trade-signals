@@ -140,3 +140,44 @@ class Downloader:
     def _checksum(self, rf: RemoteFile) -> str | None:
         data = self._get(rf.url + ".CHECKSUM")
         return None if data is None else parse_checksum(data.decode())
+
+
+def run(cfg: Config, session: requests.Session | None = None, today: date | None = None,
+        verify_existing: bool = False) -> Counter:
+    """Download everything the config asks for and print a summary."""
+    today = today or datetime.now(timezone.utc).date()
+    dl = cfg.download
+    end = dl.end or last_complete_month(today)
+    months = month_range(dl.start, end)
+    yesterday = today - timedelta(days=1)
+    d = Downloader(cfg, session, verify_existing)
+    summary: Counter = Counter()
+    failed: list[str] = []
+
+    for sym in cfg.symbols:
+        print(f"{sym}: {len(months)} monthly files {dl.start} -> {end}")
+        for i, (y, m) in enumerate(months):
+            status = d.fetch(monthly_file(cfg, sym, y, m))
+            if status == MISSING and i == len(months) - 1:
+                # the monthly zip is published a few days after month end; use daily zips meanwhile
+                print(f"  {y:04d}-{m:02d} monthly not published yet, using daily files")
+                for rf in daily_files(cfg, sym, y, m, yesterday):
+                    s = d.fetch(rf)
+                    summary[s] += 1
+                    if s == FAILED:
+                        failed.append(rf.name)
+                continue
+            summary[status] += 1
+            if status == FAILED:
+                failed.append(f"{sym}-{y:04d}-{m:02d}")
+        if dl.daily_for_current_month and dl.end is None and yesterday.month == today.month:
+            for rf in daily_files(cfg, sym, today.year, today.month, yesterday):
+                s = d.fetch(rf)
+                summary[s] += 1
+                if s == FAILED:
+                    failed.append(rf.name)
+
+    print("\nSummary: " + ", ".join(f"{k} {summary[k]}" for k in [DOWNLOADED, SKIPPED, MISSING, FAILED]))
+    if failed:
+        print("Failed: " + ", ".join(failed))
+    return summary
