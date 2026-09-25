@@ -42,3 +42,27 @@ def klines_frame(rows: list) -> pd.DataFrame:
     df["time"] = pd.to_datetime(df["open_time"].astype("int64"), unit="ms", utc=True)
     df["close_time"] = df["close_time"].astype("int64")
     return df.set_index("time")
+
+
+def fetch_hourly(symbol: str, cfg: Config, bars: int | None = None, session=None,
+                 now: pd.Timestamp | None = None) -> pd.DataFrame:
+    """The most recent ``bars`` CLOSED hourly candles (paginating backwards)."""
+    lv = cfg.live
+    session = session or requests.Session()
+    bars = bars or lv.history_bars
+    now_ms = int((now or pd.Timestamp.now(tz="UTC")).timestamp() * 1000)
+    parts, end = [], now_ms
+    while sum(len(p) for p in parts) < bars + 1:
+        rows = _get(session, lv.api_url, {"symbol": symbol, "interval": "1h", "limit": lv.request_limit,
+                                          "endTime": end}, lv.timeout_s)
+        if not rows:
+            break
+        df = klines_frame(rows)
+        parts.insert(0, df)
+        end = int(df["open_time"].iloc[0]) - 1
+        if len(rows) < lv.request_limit:
+            break
+    h = pd.concat(parts)
+    h = h[~h.index.duplicated()].sort_index()
+    h = h[h["close_time"] < now_ms]                       # drop the candle that is still forming
+    return h[["open", "high", "low", "close", "volume"]].tail(bars)
