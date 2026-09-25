@@ -181,3 +181,25 @@ def run(cfg: Config, session: requests.Session | None = None, today: date | None
     if failed:
         print("Failed: " + ", ".join(failed))
     return summary
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbols", nargs="+")
+    p.add_argument("--start")
+    p.add_argument("--end")
+    p.add_argument("--verify-existing", action="store_true", help="fetch checksums for files already on disk")
+    a = p.parse_args()
+    over: dict = {"download": {}}
+    if a.symbols:
+        over["symbols"] = a.symbols
+    if a.start:
+        over["download"]["start"] = a.start
+    if a.end:
+        over["download"]["end"] = a.end
+    summary = run(load_config(overrides=over), verify_existing=a.verify_existing)
+    raise SystemExit(1 if summary[FAILED] else 0)
+
+
+if __name__ == "__main__":
+    main()
