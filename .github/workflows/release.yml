@@ -1,0 +1,89 @@
+# Daily release: moves ONE DAY of work (5-8 commits) per day from Dev to Main.
+#
+# How it works
+#   - All the finished work sits on the Dev branch, grouped by commit subject:
+#     "Day 01: ...", "Day 02: ...", ... Each day has 5-8 commits.
+#   - Every day this job takes the oldest Dev commits that are not on Main yet and belong
+#     to the same "Day NN", re-creates them on Main with TODAY's date, and pushes them.
+#     A commit without a "Day NN" prefix is released on its own.
+#   - Commits keep your name/email from Dev, so they count on your GitHub graph
+#     (the email must be a verified email on your GitHub account).
+#   - Stops by itself when Dev is fully released.
+#
+# Put this file on Main at: .github/workflows/release.yml
+# Main must be the repo's default branch (scheduled jobs only run from the default branch).
+
+name: Daily release (Dev -> Main)
+
+on:
+  schedule:
+    - cron: "37 14 * * *"      # every day 14:37 UTC = 20:07 Sri Lanka time
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Release even if commits were already released today"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Main (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: Main
+          fetch-depth: 0
+
+      - name: Release the next day of Dev commits
+        env:
+          FORCE: ${{ github.event.inputs.force || 'false' }}
+          TZ: Asia/Colombo
+        run: |
+          set -euo pipefail
+          git fetch origin Dev
+
+          # Commits on Dev whose changes are not on Main yet (oldest first)
+          PENDING=$(git cherry Main origin/Dev | awk '$1=="+"{print $2}')
+          if [ -z "$PENDING" ]; then
+            echo "All Dev commits are already on Main. Nothing to do."
+            exit 0
+          fi
+          FIRST=$(echo "$PENDING" | head -n1)
+          LEFT=$(echo "$PENDING" | wc -l)
+          DAY=$(git log -1 --format=%s "$FIRST" | grep -oE '^Day [0-9]+' || true)
+
+          # Only one release per calendar day (Sri Lanka time)
+          TODAY=$(date +%F)
+          LAST=$(git log -1 --date=format-local:%F --format=%cd Main)
+          if [ "$LAST" = "$TODAY" ] && [ "$FORCE" != "true" ]; then
+            echo "Main already has a commit dated $TODAY. Skipping."
+            exit 0
+          fi
+
+          # Commit as the original author, dated now
+          git config user.name  "$(git log -1 --format=%an "$FIRST")"
+          git config user.email "$(git log -1 --format=%ae "$FIRST")"
+
+          COUNT=0
+          for C in $PENDING; do
+            THIS_DAY=$(git log -1 --format=%s "$C" | grep -oE '^Day [0-9]+' || true)
+            if [ "$COUNT" -gt 0 ] && { [ -z "$DAY" ] || [ "$THIS_DAY" != "$DAY" ]; }; then
+              break
+            fi
+            git cherry-pick --no-commit "$C"
+            git commit --allow-empty --no-verify -C "$C" --reset-author
+            echo "Released: $(git log -1 --format='%h %s')"
+            COUNT=$((COUNT + 1))
+          done
+
+          git push origin HEAD:Main
+          echo "Released $COUNT commit(s) for ${DAY:-an unlabelled commit}"
+          echo "Remaining after this: $((LEFT - COUNT))"
