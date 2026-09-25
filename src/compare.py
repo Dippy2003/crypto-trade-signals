@@ -28,6 +28,29 @@ DEFAULT_MODELS = ["xgb", "cnn", "logreg"]
 KEY = ["symbol", "time"]
 
 
+def load_available(cfg: Config, kinds: list[str]) -> dict[str, pd.DataFrame]:
+    out = {}
+    for k in kinds:
+        if oof_path(cfg, k).exists():
+            out[k] = load_oof(cfg, k)
+        else:
+            print(f"{k}: no out-of-fold predictions ({oof_path(cfg, k).name}); skipped")
+    return out
+
+
+def common_rows(oofs: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """Restrict every model to the (symbol, time) rows all of them predicted."""
+    keys = None
+    for o in oofs.values():
+        k = pd.MultiIndex.from_frame(o[KEY])
+        keys = k if keys is None else keys.intersection(k)
+    out = {}
+    for name, o in oofs.items():
+        keep = pd.MultiIndex.from_frame(o[KEY]).isin(keys)
+        out[name] = o[keep].sort_values(KEY).reset_index(drop=True)
+    return out
+
+
 def bootstrap_diff(a: np.ndarray, b: np.ndarray, n_boot: int, level: float, seed: int) -> tuple[float, float, float]:
     """Difference in means (a - b) with a percentile bootstrap CI, resampling each side independently."""
     rng = np.random.default_rng(seed)
