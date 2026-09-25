@@ -144,3 +144,30 @@ def reliability_markdown(cal: pd.DataFrame) -> str:
         for r in rel[rel["n"] >= 30].to_dict("records"):
             parts.append(f"| {side} | {r['predicted']:.3f} | {r['observed']:.3f} | {r['n']:,} |")
     return "\n".join(parts)
+
+
+def run_walk_forward(cfg: Config, kind: str, retrain: bool = True, oof: pd.DataFrame | None = None) -> dict:
+    if oof is None:
+        oof = tr.run(cfg, kind) if retrain else tr.load_oof(cfg, kind)
+    cal = calibrate_oof(oof, cfg)
+    dec, thresholds = decide_oof(attach_market(cal, cfg), cfg)
+    traded = dec[dec["calibrated"]]
+    if traded.empty:
+        raise SystemExit("No calibrated folds: need more walk-forward folds than calibration warm-up")
+    ev = evaluate_decisions(traded, cfg, kind)
+    ev["cfg"] = cfg
+    reports = ensure_dir(resolve_path(cfg, "reports"))
+    figs = ensure_dir(reports / "figures")
+    fig = f"equity_walk_forward_{kind}.png"
+    plot_equity({kind: ev["result"].equity, "buy & hold": ev["buy_hold_eq"]}, figs / fig,
+                f"Walk-forward {kind} (after costs)")
+    save_trades(ev["result"], reports / f"trades_{kind}.csv")
+    md = walk_forward_markdown(ev, per_fold(traded, cfg), thresholds, reliability_markdown(cal), kind, fig,
+                               int((~dec["calibrated"]).sum()))
+    name = "walk_forward.md" if kind == "xgb" else f"walk_forward_{kind}.md"
+    (reports / name).write_text(md, encoding="utf-8")
+    print(f"{kind}: {ev['model']['trades']} trades, net {_pct(ev['model']['net_return'])}; "
+          f"buy & hold {_pct(ev['buy_hold']['net_return'])}. Saved {reports / name}")
+    ev["decisions"] = dec
+    ev["thresholds"] = thresholds
+    return ev
