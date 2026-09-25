@@ -1,0 +1,130 @@
+# All project settings. Code reads these through src/config.py; no magic numbers in code.
+# Paths are relative to the project root.
+
+symbols: [BTCUSDT, ETHUSDT]
+context_symbol: BTCUSDT          # its features are added as context columns for the other symbols
+
+paths:
+  raw: data/raw
+  processed: data/processed
+  images: data/images
+  models: models
+  reports: reports
+
+download:
+  base_url: https://data.binance.vision/data/spot
+  interval: 1m
+  start: "2021-01"               # first month (YYYY-MM)
+  end: null                      # last month (YYYY-MM); null = last complete month
+  daily_for_current_month: true  # also fetch daily zips for the current month
+  retries: 3
+  backoff_s: 2.0
+  timeout_s: 60
+
+data:
+  min_minutes_per_hour: 50       # hourly bars with fewer 1m bars are dropped
+  us_threshold: 1.0e14           # open_time above this is microseconds (2025+ files)
+
+labels:
+  tp_atr: 2.0                    # take-profit distance in ATRs
+  sl_atr: 1.0                    # stop-loss distance in ATRs
+  horizon_h: 12                  # maximum holding time
+  atr_n: 14
+  chunk_rows: 2048               # rows per vectorized block (memory vs speed)
+
+features:
+  return_windows: [1, 2, 3, 6, 12, 24]
+  ema_spans: [10, 20, 50, 200]
+  rsi_n: 14
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  bb_n: 20
+  bb_k: 2.0
+  atr_n: 14
+  vol_windows: [6, 12, 24]
+  volume_mean_n: 20
+  leakage_max_abs_corr: 0.3      # |corr(feature, label)| above this is flagged
+
+splits:
+  first_test_start: "2023-01-01" # first walk-forward test period starts here
+  test_months: 3                 # length of each test period (expanding train window)
+  holdout_start: "2026-01-01"    # final holdout; only `evaluate --holdout` may touch it
+  embargo_h: 24
+  val_fraction: 0.15             # tail of each training fold used for early stopping
+  min_train_rows: 2000
+
+model:
+  seed: 42
+  logreg:
+    C: 0.1
+    max_iter: 2000
+  xgb:
+    n_estimators: 2000
+    learning_rate: 0.03
+    max_depth: 4
+    min_child_weight: 5
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_lambda: 1.0
+    early_stopping_rounds: 100
+    n_jobs: -1
+  importance_top_n: 25
+
+calibration:
+  method: isotonic               # isotonic | sigmoid (Platt)
+  min_rows: 500                  # fewer prior out-of-fold rows -> fold is warm-up, not traded
+
+decision:
+  threshold_min: 0.30
+  threshold_max: 0.80
+  threshold_step: 0.02
+  min_trades: 20                 # a threshold needs this many validation trades to be eligible
+  timeout_return: 0.0            # assumed return when neither barrier is hit
+
+costs:
+  fee_per_side: 0.001            # 0.1% taker fee
+  slippage_per_side: 0.0002
+
+backtest:
+  initial_equity: 10000.0
+  risk_per_trade: 0.01           # fraction of equity lost if the stop is hit
+  max_position_leverage: 2.0     # cap on notional / equity for one position
+  max_daily_loss: 0.03           # stop opening trades for the UTC day after this realized loss
+
+metrics:
+  periods_per_year: 8760         # hourly, 24/7 market
+  random_sims: 200
+  bootstrap_n: 5000
+  ci_level: 0.95
+
+images:
+  n_candles: 60
+  size_px: 224
+  dpi: 100
+  up_color: "#26a69a"
+  down_color: "#ef5350"
+  background: "#ffffff"
+  workers: 8
+  chunk_size: 256
+
+cnn:
+  pretrained: true
+  epochs: 10
+  patience: 2
+  batch_size: 64
+  lr: 0.0003
+  weight_decay: 0.0001
+  num_workers: 4
+  train_subsample: 1.0           # fraction of training rows per fold (speed knob)
+
+live:
+  api_url: https://api.binance.com/api/v3/klines
+  history_bars: 2000             # enough warm-up for EMA200 to match training
+  request_limit: 1000
+  timeout_s: 20
+  model_kind: xgb
+
+paper:
+  log_file: paper_trades.csv     # written under paths.reports
+  poll_minute: 1                 # run this many minutes after each hour
