@@ -58,6 +58,64 @@ def build_model(pretrained: bool) -> nn.Module:
     return m
 
 
+def _loader(paths, labels, cfg: Config, shuffle: bool, seed: int = 0) -> DataLoader:
+    c = cfg.cnn
+    g = torch.Generator().manual_seed(seed)
+    return DataLoader(ChartDataset(paths, labels), batch_size=c.batch_size, shuffle=shuffle,
+                      num_workers=c.num_workers, pin_memory=torch.cuda.is_available(),
+                      persistent_workers=c.num_workers > 0, generator=g)
+
+
+def _loss_fn(y: np.ndarray, dev: torch.device) -> nn.Module:
+    counts = np.bincount(y, minlength=len(tr.CLASSES)).astype(np.float32)
+    w = len(y) / (len(tr.CLASSES) * np.maximum(counts, 1))
+    return nn.CrossEntropyLoss(weight=torch.tensor(w, device=dev))
+
+
+def _epoch_loss(model, loader, loss_fn, dev, optimizer=None, scaler=None) -> float:
+    model.train(optimizer is not None)
+    total, n = 0.0, 0
+    amp = dev.type == "cuda"
+    for x, y in loader:
+        x, y = x.to(dev, non_blocking=True), y.to(dev, non_blocking=True)
+        with torch.set_grad_enabled(optimizer is not None), torch.autocast(dev.type, enabled=amp):
+            loss = loss_fn(model(x), y)
+        if optimizer is not None:
+            optimizer.zero_grad(set_to_none=True)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        total += float(loss.detach()) * len(y)
+        n += len(y)
+    return total / max(n, 1)
+
+
+def fit_cnn(paths_fit, y_fit, paths_val, y_val, cfg: Config, dev: torch.device | None = None) -> nn.Module:
+    """Train with early stopping on validation loss; returns the best model (eval mode)."""
+    dev = dev or device()
+    c = cfg.cnn
+    torch.manual_seed(cfg.model.seed)
+    model = build_model(c.pretrained).to(dev)
+    opt = torch.optim.AdamW(model.parameters(), lr=c.lr, weight_decay=c.weight_decay)
+    scaler = torch.amp.GradScaler(dev.type, enabled=dev.type == "cuda")
+    fit_loader = _loader(paths_fit, y_fit, cfg, shuffle=True, seed=cfg.model.seed)
+    val_loader = _loader(paths_val, y_val, cfg, shuffle=False)
+    fit_loss, val_loss = _loss_fn(y_fit, dev), _loss_fn(y_val, dev)
+    best, best_state, bad = np.inf, copy.deepcopy(model.state_dict()), 0
+    for epoch in range(c.epochs):
+        tl = _epoch_loss(model, fit_loader, fit_loss, dev, opt, scaler)
+        vl = _epoch_loss(model, val_loader, val_loss, dev)
+        print(f"    epoch {epoch + 1}: train {tl:.4f}  val {vl:.4f}")
+        if vl < best - 1e-4:
+            best, best_state, bad = vl, copy.deepcopy(model.state_dict()), 0
+        else:
+            bad += 1
+            if bad >= c.patience:
+                break
+    model.load_state_dict(best_state)
+    return model.eval()
+
+
 def image_rows(cfg: Config, symbol: str) -> tuple[pd.DataFrame, list[str]]:
     """Development rows that have a chart image, and their image paths."""
     ds = tr.development_data(tr.assemble_dataset(cfg, symbol), cfg)
