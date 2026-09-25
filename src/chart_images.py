@@ -75,3 +75,49 @@ def render_window(window: pd.DataFrame, path: Path | None, ic: dict, size_px: in
     fig.savefig(path, dpi=ic["dpi"], facecolor=ic["background"])
     plt.close(fig)
     return None
+
+
+def _init(h: pd.DataFrame, ic: dict) -> None:
+    global _H, _IC
+    _H, _IC = h, ic
+
+
+def _render_many(jobs: list[tuple[int, str]]) -> int:
+    n = _IC["n_candles"]
+    for pos, path in jobs:
+        render_window(_H.iloc[pos - n + 1: pos + 1], Path(path), _IC)
+    return len(jobs)
+
+
+def render_symbol(cfg: Config, symbol: str, times: pd.DatetimeIndex | None = None,
+                  workers: int | None = None, limit: int | None = None) -> dict[str, int]:
+    """Render missing images for ``symbol`` (default: every labelled bar). Returns counts."""
+    from src.train import assemble_dataset
+
+    ic = dict(cfg.images)
+    h = load_hourly(cfg, symbol)[["open", "high", "low", "close"]]
+    if times is None:
+        times = assemble_dataset(cfg, symbol).df.index
+    ok = complete_windows(h, times, ic["n_candles"])
+    out = ensure_dir(image_dir(cfg, symbol))
+    todo = [t for t in ok if not (out / image_name(t)).exists()]
+    existing = len(ok) - len(todo)
+    if limit:
+        todo = todo[:limit]
+    pos = h.index.get_indexer(pd.DatetimeIndex(todo))
+    jobs = [(int(p), str(out / image_name(t))) for p, t in zip(pos, todo)]
+    workers = workers or ic["workers"]
+    chunks = [jobs[i:i + ic["chunk_size"]] for i in range(0, len(jobs), ic["chunk_size"])]
+    done = 0
+    if workers <= 1 or len(jobs) < ic["chunk_size"]:
+        _init(h, ic)
+        done = _render_many(jobs)
+    else:
+        with Pool(workers, initializer=_init, initargs=(h, ic)) as pool:
+            for i, n in enumerate(pool.imap_unordered(_render_many, chunks), 1):
+                done += n
+                if i % 10 == 0 or i == len(chunks):
+                    print(f"  {symbol}: {done:,}/{len(jobs):,}")
+    counts = {"requested": len(times), "complete_windows": len(ok), "existing": existing, "rendered": done}
+    print(f"{symbol}: {counts}")
+    return counts

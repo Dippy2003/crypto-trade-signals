@@ -11,3 +11,17 @@ def test_complete_windows_skip_gaps():
     ok = ci.complete_windows(h, idx, 60)
     # windows ending at hours 59..69 are complete; every later window contains the missing hour 70
     assert list(ok) == list(idx[59:70])
+
+
+def test_render_images_fixed_size_and_resumable(project):
+    times = assemble_dataset(project, "BTCUSDT").df.index[:6]
+    first = ci.render_symbol(project, "BTCUSDT", times, workers=1)
+    assert first["rendered"] == 6
+    p = ci.image_path(project, "BTCUSDT", times[0])
+    assert p.name == f"{times[0]:%Y%m%d_%H}.png"
+    img = Image.open(p)
+    assert img.size == (project.images.size_px, project.images.size_px)
+    colors = {c for _, c in img.convert("RGB").getcolors(100000)}
+    assert (255, 255, 255) in colors and len(colors) > 3    # white background plus candle colors
+    again = ci.render_symbol(project, "BTCUSDT", times, workers=1)
+    assert again["rendered"] == 0 and again["existing"] == 6
