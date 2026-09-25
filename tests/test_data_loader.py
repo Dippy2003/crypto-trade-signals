@@ -8,6 +8,13 @@ from synth import random_walk_minutes, to_binance, write_months, write_zip
 US = 1.0e14
 
 
+@pytest.fixture
+def cfg(tmp_path):
+    return load_config(overrides={"paths": {"raw": str(tmp_path / "raw"),
+                                            "processed": str(tmp_path / "processed"),
+                                            "reports": str(tmp_path / "reports")}})
+
+
 def test_ms_and_us_files_mixed(tmp_path):
     m = random_walk_minutes("2024-12-31 22:00", 240, seed=1)   # crosses into 2025
     files = write_months(tmp_path, "BTCUSDT", m)
@@ -69,3 +76,15 @@ def test_hourly_aggregation():
     assert row["low"] == first["low"].min()
     assert row["close"] == first["close"].iloc[-1]
     assert row["volume"] == pytest.approx(first["volume"].sum())
+
+
+def test_build_writes_parquet_and_report(cfg):
+    raw = resolve_path(cfg, "raw")
+    write_months(raw, "BTCUSDT", random_walk_minutes("2024-01-31 20:00", 600, seed=7))
+    write_zip(raw / "BTCUSDT-1m-2024-01 (1).zip", to_binance(random_walk_minutes("2024-01-31", 10)))
+    stats = dlr.build(cfg)
+    assert stats["BTCUSDT"]["rows_1h"] == 10
+    assert len(dlr.load_hourly(cfg, "BTCUSDT")) == 10
+    assert len(dlr.load_minute(cfg, "BTCUSDT")) == 600
+    report = (resolve_path(cfg, "reports") / "data_quality.md").read_text()
+    assert "BTCUSDT" in report and "(1).zip" in report
