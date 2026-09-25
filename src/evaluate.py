@@ -282,3 +282,21 @@ def run_holdout(cfg: Config, kind: str, i_understand: bool = False) -> dict:
     print(f"holdout {kind}: {ev['model']['trades']} trades, net {_pct(ev['model']['net_return'])}. "
           f"Saved {reports / 'holdout.md'}")
     return ev
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--model", default="xgb", choices=sorted(tr.TRAINERS))
+    p.add_argument("--no-retrain", action="store_true", help="reuse the saved OOF predictions")
+    p.add_argument("--holdout", action="store_true", help="evaluate the final model on the holdout (once)")
+    p.add_argument("--i-understand", action="store_true", help="allow a second holdout run")
+    a = p.parse_args()
+    cfg = load_config()
+    if a.holdout:
+        run_holdout(cfg, a.model, a.i_understand)
+    else:
+        run_walk_forward(cfg, a.model, retrain=not a.no_retrain)
+
+
+if __name__ == "__main__":
+    main()
