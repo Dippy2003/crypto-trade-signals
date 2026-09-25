@@ -59,3 +59,39 @@ def load_log(cfg: Config) -> pd.DataFrame:
 def save_log(cfg: Config, log: pd.DataFrame) -> None:
     ensure_dir(log_path(cfg).parent)
     log[LOG_COLS].to_csv(log_path(cfg), index=False)
+
+
+def resolve_trade(row: pd.Series, minutes: pd.DataFrame, cfg: Config, now: pd.Timestamp) -> dict | None:
+    """Outcome of one open trade, or None while it is still running."""
+    lc = cfg.labels
+    start = row["timestamp"]
+    H = lc.horizon_h * 60
+    m = minutes[(minutes.index >= start) & (minutes.index < start + pd.Timedelta(minutes=H))]
+    if m.empty or m.index[0] != start:
+        return None                                   # entry minute not available yet
+    side = SIDE[row["decision"]]
+    entry = float(m["open"].iloc[0])
+    tp, sl = entry + side * lc.tp_atr * row["atr"], entry - side * lc.sl_atr * row["atr"]
+    label, gross, held = barrier_outcome(m["high"].to_numpy(), m["low"].to_numpy(), float(m["close"].iloc[-1]),
+                                         entry, tp, sl, side)
+    horizon_done = now >= start + pd.Timedelta(minutes=H) and len(m) == H
+    if label == NO_TRADE and not horizon_done:
+        return None
+    exit_px = entry * (1 + side * gross)
+    return {"status": "CLOSED", "entry": entry, "tp": tp, "sl": sl, "exit": exit_px,
+            "exit_time": start + pd.Timedelta(minutes=int(held)), "exit_reason": REASON[label],
+            "minutes": int(held), "gross_ret": gross, "pnl": float(net_return(side, entry, exit_px, cfg))}
+
+
+def resolve_open(cfg: Config, log: pd.DataFrame, now: pd.Timestamp, session=None) -> pd.DataFrame:
+    log = log.copy()
+    for sym, g in log[log["status"] == "OPEN"].groupby("symbol"):
+        start = g["timestamp"].min()
+        end = min(now.floor("min"), g["timestamp"].max() + pd.Timedelta(hours=cfg.labels.horizon_h))
+        minutes = fetch_minutes(sym, cfg, start, end, session=session)
+        for i, row in g.iterrows():
+            out = resolve_trade(row, minutes, cfg, now)
+            if out:
+                for k, v in out.items():
+                    log.loc[i, k] = v
+    return log
