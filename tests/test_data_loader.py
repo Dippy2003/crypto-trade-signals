@@ -46,3 +46,26 @@ def test_missing_minutes_and_largest_gap(tmp_path):
     assert s["missing_1m"] == 32
     assert s["largest_gap_min"] == 30
     assert s["largest_gap_start"] == gap[0]
+
+
+def test_incomplete_hour_dropped():
+    m = random_walk_minutes("2024-03-01", 180, seed=5)
+    m = m.drop(m.index[60:71])                    # hour 01:00 keeps 49 minutes -> dropped
+    m = m.drop(m.index[m.index.hour == 2][:10])   # hour 02:00 keeps 50 minutes -> kept
+    h, dropped = dlr.to_hourly(m, 50)
+    assert dropped == 1
+    assert list(h.index.hour) == [0, 2]
+    assert list(h["n_min"]) == [60, 50]
+
+
+def test_hourly_aggregation():
+    m = random_walk_minutes("2024-03-01", 120, seed=6)
+    h, _ = dlr.to_hourly(m, 50)
+    first = m.iloc[:60]
+    row = h.iloc[0]
+    assert h.index[0] == pd.Timestamp("2024-03-01 00:00", tz="UTC")   # labelled by the hour's open
+    assert row["open"] == first["open"].iloc[0]
+    assert row["high"] == first["high"].max()
+    assert row["low"] == first["low"].min()
+    assert row["close"] == first["close"].iloc[-1]
+    assert row["volume"] == pytest.approx(first["volume"].sum())
