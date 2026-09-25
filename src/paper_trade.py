@@ -95,3 +95,35 @@ def resolve_open(cfg: Config, log: pd.DataFrame, now: pd.Timestamp, session=None
                 for k, v in out.items():
                     log.loc[i, k] = v
     return log
+
+
+def record_signals(cfg: Config, log: pd.DataFrame, kind: str, symbols=None, session=None,
+                   now: pd.Timestamp | None = None) -> pd.DataFrame:
+    rows = []
+    for sym in symbols or cfg.symbols:
+        sig, _ = get_signal(cfg, sym, kind, session=session, now=now)
+        seen = (log["symbol"] == sym) & (pd.to_datetime(log["bar_time"], utc=True) == sig.bar_time)
+        if seen.any():
+            continue
+        status = "NO TRADE"
+        if sig.decision in SIDE:
+            is_open = ((log["symbol"] == sym) & (log["status"] == "OPEN")).any()
+            status = "SKIPPED" if is_open else "OPEN"
+        rows.append({"timestamp": sig.decision_time, "bar_time": sig.bar_time, "symbol": sym, "model": sig.model,
+                     "decision": sig.decision, "status": status, "probability": sig.confidence,
+                     "p_long_win": sig.p_long_win, "p_short_win": sig.p_short_win, "atr": sig.atr,
+                     "entry": sig.entry, "tp": sig.tp, "sl": sig.sl})
+        print(f"{sig.decision_time:%Y-%m-%d %H:%M} {sym}: {sig.decision} ({status})")
+    if not rows:
+        return log
+    new = typed(pd.DataFrame(rows))
+    return new if log.empty else pd.concat([typed(log), new], ignore_index=True)
+
+
+def run_once(cfg: Config, kind: str | None = None, session=None, now: pd.Timestamp | None = None) -> pd.DataFrame:
+    kind = kind or cfg.live.model_kind
+    now = now or pd.Timestamp.now(tz="UTC")
+    log = resolve_open(cfg, load_log(cfg), now, session)
+    log = record_signals(cfg, log, kind, session=session, now=now)
+    save_log(cfg, log)
+    return log
