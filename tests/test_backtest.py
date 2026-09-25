@@ -72,3 +72,20 @@ def test_sizing_uses_realized_equity(cfg):
     first, second = res.trades.iloc[0], res.trades.iloc[1]
     assert second["equity_at_entry"] == pytest.approx(10_000 + first["pnl"])
     assert second["notional"] == pytest.approx(second["equity_at_entry"])
+
+
+def test_max_daily_loss_stop(cfg):
+    rows = [sig(h, LONG, LOSS, minutes=10) for h in range(5)]        # five stop-outs in one day
+    rows.append(sig(0, LONG, WIN, day=1))                            # next day trades again
+    res = run(rows, cfg)
+    # each loss is ~1.24%; after 3 losses (> 3% of the day's start) trading stops for the day
+    assert (res.trades["signal_time"].dt.day == 1).sum() == 3
+    assert res.skipped["daily_loss_stop"] == 2
+    assert res.trades.iloc[-1]["signal_time"] == T + pd.Timedelta(days=1)
+
+
+def test_no_trades_gives_flat_equity(cfg):
+    rows = [sig(0, LONG, WIN)]
+    rows[0]["decision"] = 0
+    res = run(rows, cfg)
+    assert res.trades.empty and (res.equity == 10_000).all()
