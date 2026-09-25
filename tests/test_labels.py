@@ -101,3 +101,20 @@ def test_stop_loss_hit_first():
     r = lab.loc[bar]
     assert r["long_label"] == lb.LOSS and r["long_minutes"] == 6
     assert r["long_ret"] == pytest.approx(-0.01) and r["long_exit"] == pytest.approx(99)
+
+
+def test_both_barriers_in_same_minute_is_loss():
+    lab, bar = hand_case([(7, "high", 102.5), (7, "low", 97.5)])
+    r = lab.loc[bar]
+    assert r["long_label"] == lb.LOSS and r["long_minutes"] == 8
+    assert r["short_label"] == lb.LOSS and r["short_minutes"] == 8
+    assert r["long_ret"] == pytest.approx(-0.01) and r["short_ret"] == pytest.approx(-0.01)
+
+
+def test_timeout_is_no_trade():
+    lab, bar = hand_case([(100, "high", 100.9), (200, "low", 99.1)], last_close=100.3)
+    r = lab.loc[bar]
+    assert r["long_label"] == lb.NO_TRADE and r["short_label"] == lb.NO_TRADE
+    assert r["long_minutes"] == H and r["short_minutes"] == H
+    assert r["long_ret"] == pytest.approx(0.003) and r["short_ret"] == pytest.approx(-0.003)
+    assert r["long_exit"] == pytest.approx(100.3)
