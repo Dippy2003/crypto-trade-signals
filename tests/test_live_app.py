@@ -111,3 +111,14 @@ def test_get_signal_end_to_end(project, bundle):
     sig, h = live.get_signal(project, "ETHUSDT", "logreg", session=FakeBinance(hourly), now=now)
     assert sig.bar_time == hourly["ETHUSDT"].index[-1]
     assert len(h) == min(project.live.history_bars, len(hourly["ETHUSDT"]))
+
+
+def test_app_renders_without_network():
+    from streamlit.testing.v1 import AppTest
+
+    from src.config import ROOT
+
+    at = AppTest.from_file(str(ROOT / "src" / "app.py"), default_timeout=60).run()
+    assert not at.exception
+    assert at.title[0].value == "Crypto trade signals"
+    assert [s.label for s in at.selectbox] == ["Symbol", "Model"]
