@@ -113,3 +113,13 @@ def build(cfg: Config, symbols: list[str] | None = None) -> dict[str, pd.DataFra
         f.to_parquet(proc / f"{sym}_features.parquet")
         print(f"{sym}: {f.shape[1]} features, {f.dropna().shape[0]:,} of {len(f):,} rows complete")
     return {s: feats[s] for s in symbols}
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbols", nargs="+")
+    build(load_config(), p.parse_args().symbols)
+
+
+if __name__ == "__main__":
+    main()
