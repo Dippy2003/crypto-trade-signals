@@ -117,3 +117,8 @@ def equity_curve(trades: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp, i
         return pd.Series(initial, index=grid, name="equity")
     pnl = trades.groupby(trades["exit_time"].dt.ceil("h"))["pnl"].sum()
     return (initial + pnl.reindex(grid, fill_value=0.0).cumsum()).rename("equity")
+
+
+def save_trades(res: BacktestResult, path) -> None:
+    ensure_dir(path.parent)
+    res.trades.to_csv(path, index=False, date_format="%Y-%m-%d %H:%M:%S%z")
