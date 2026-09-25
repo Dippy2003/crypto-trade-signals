@@ -98,3 +98,19 @@ def test_save_trades(cfg, tmp_path):
     assert list(back["exit_reason"]) == ["TP", "SL"]
     assert {"symbol", "side", "entry", "tp", "sl", "exit", "pnl", "net_ret", "confidence"} <= set(back.columns)
     assert np.isclose(back["pnl"].sum(), res.trades["pnl"].sum())
+
+
+def test_backtest_on_walk_forward_decisions(project):
+    from src.calibrate import calibrate_oof
+    from src.decision import attach_market, decide_oof
+    from src.train import walk_forward
+
+    oof, _ = walk_forward(project, "logreg")
+    dec, _ = decide_oof(attach_market(calibrate_oof(oof, project), project), project)
+    dec = dec[dec["calibrated"]]
+    dec.loc[dec.index[::50], "decision"] = LONG          # force some trades on random data
+    res = bt.backtest(dec, project)
+    assert len(res.trades) > 0
+    for sym, g in res.trades.groupby("symbol"):
+        assert (g["entry_time"].iloc[1:].to_numpy() >= g["exit_time"].iloc[:-1].to_numpy()).all()
+    assert res.equity.index.is_monotonic_increasing

@@ -122,3 +122,25 @@ def equity_curve(trades: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp, i
 def save_trades(res: BacktestResult, path) -> None:
     ensure_dir(path.parent)
     res.trades.to_csv(path, index=False, date_format="%Y-%m-%d %H:%M:%S%z")
+
+
+def main() -> None:
+    from src.calibrate import calibrate_oof
+    from src.decision import attach_market, decide_oof
+    from src.train import load_oof
+
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--model", default="xgb")
+    a = p.parse_args()
+    cfg = load_config()
+    dec, _ = decide_oof(attach_market(calibrate_oof(load_oof(cfg, a.model), cfg), cfg), cfg)
+    res = backtest(dec[dec["calibrated"]], cfg)
+    path = resolve_path(cfg, "reports") / f"trades_{a.model}.csv"
+    save_trades(res, path)
+    final = res.equity.iloc[-1]
+    print(f"{len(res.trades)} trades, final equity {final:,.2f} "
+          f"({final / cfg.backtest.initial_equity - 1:+.2%}), skipped {res.skipped}. Saved {path}")
+
+
+if __name__ == "__main__":
+    main()
