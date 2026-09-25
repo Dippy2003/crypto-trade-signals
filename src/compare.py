@@ -150,3 +150,13 @@ def write_report(cfg: Config, out: dict) -> None:
               "Trades overlap in time and are not fully independent, so these intervals are optimistic."]
     (reports / "comparison.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Saved {reports / 'comparison.md'}")
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--models", nargs="+", default=DEFAULT_MODELS)
+    compare(load_config(), p.parse_args().models)
+
+
+if __name__ == "__main__":
+    main()
