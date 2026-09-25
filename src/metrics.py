@@ -128,7 +128,47 @@ def random_baseline(pool: pd.DataFrame, n_trades: int, cfg: Config, start: pd.Ti
             "exposure": float(df["exposure"].mean())}, rets
 
 
+def _fmt(k: str, v) -> str:
+    if v is None or (isinstance(v, float) and np.isnan(v)):
+        return "n/a"
+    if k in ("trades",):
+        return f"{v:,.0f}"
+    if k in ("net_return", "net_return_p05", "net_return_p95", "win_rate", "max_drawdown", "exposure"):
+        return f"{v:+.2%}" if k.startswith("net") or k == "max_drawdown" else f"{v:.1%}"
+    if k in ("mean_trade_ret", "avg_win", "avg_loss"):
+        return f"{v:+.3%}"
+    return f"{v:.2f}"
+
+
 COLUMNS = [("net_return", "Net return"), ("trades", "Trades"), ("win_rate", "Win rate"),
            ("avg_win", "Avg win"), ("avg_loss", "Avg loss"), ("profit_factor", "Profit factor"),
            ("mean_trade_ret", "Mean trade"), ("max_drawdown", "Max DD"), ("sharpe", "Sharpe"),
            ("sortino", "Sortino"), ("exposure", "Exposure")]
+
+
+def metrics_table(rows: dict[str, dict]) -> str:
+    """Markdown table: one row per strategy / baseline."""
+    head = "| Strategy | " + " | ".join(n for _, n in COLUMNS) + " |"
+    sep = "|---|" + "---:|" * len(COLUMNS)
+    body = [f"| {name} | " + " | ".join(_fmt(k, m.get(k)) for k, _ in COLUMNS) + " |" for name, m in rows.items()]
+    return "\n".join([head, sep, *body])
+
+
+def plot_equity(curves: dict[str, pd.Series], path, title: str) -> None:
+    """Equity curves (normalized to 1) with a drawdown panel."""
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, (a1, a2) = plt.subplots(2, 1, figsize=(10, 6), sharex=True, gridspec_kw={"height_ratios": [3, 1]})
+    for name, eq in curves.items():
+        a1.plot(eq.index, eq / eq.iloc[0], label=name, lw=1.2)
+        a2.plot(eq.index, drawdown(eq) * 100, lw=1)
+    a1.set_ylabel("equity (start = 1)")
+    a1.set_title(title)
+    a1.legend(loc="upper left", fontsize=8)
+    a1.grid(alpha=0.3)
+    a2.set_ylabel("drawdown %")
+    a2.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path, dpi=110)
+    plt.close(fig)
