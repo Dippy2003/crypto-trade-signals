@@ -45,3 +45,17 @@ def test_train_is_purged_and_embargoed(cfg, times):
 def test_expanding_window(cfg, times):
     sizes = [sp.fold_masks(times, f, cfg)[0].sum() for f in sp.make_folds(cfg)]
     assert sizes == sorted(sizes) and sizes[0] > 0
+
+
+def test_nothing_in_development_touches_the_holdout(cfg, times):
+    hold = pd.Timestamp("2025-01-01", tz="UTC")
+    dev = sp.development_mask(times, cfg)
+    assert (sp.label_end(times[dev], cfg) <= hold - pd.Timedelta(hours=24)).all()
+    for f in sp.make_folds(cfg):
+        tr, te = sp.fold_masks(times, f, cfg)
+        assert not (tr & ~dev).any() and not (te & ~dev).any()
+    ho = sp.holdout_mask(times, cfg)
+    assert times[ho].min() == hold and not (ho & dev).any()
+    with pytest.raises(RuntimeError):
+        sp.assert_no_holdout(times, cfg)
+    sp.assert_no_holdout(times[dev], cfg)

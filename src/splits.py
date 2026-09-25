@@ -62,9 +62,19 @@ def development_mask(times: pd.DatetimeIndex, cfg: Config) -> np.ndarray:
     return np.asarray(label_end(times, cfg) <= _ts(cfg.splits.holdout_start) - emb)
 
 
+def holdout_mask(times: pd.DatetimeIndex, cfg: Config) -> np.ndarray:
+    """Rows in the final holdout. Only the one-shot holdout evaluation may use this."""
+    return np.asarray(times >= _ts(cfg.splits.holdout_start))
+
+
 def fold_masks(times: pd.DatetimeIndex, fold: Fold, cfg: Config) -> tuple[np.ndarray, np.ndarray]:
     """(train, test) boolean masks for one fold. Train is purged and embargoed; neither touches the holdout."""
     dev = development_mask(times, cfg)
     test = dev & np.asarray((times >= fold.test_start) & (times < fold.test_end))
     train = dev & np.asarray(times < fold.test_start) & outside(times, fold.test_start, fold.test_end, cfg)
     return train, test
+
+
+def assert_no_holdout(times: pd.DatetimeIndex, cfg: Config) -> None:
+    if not development_mask(times, cfg).all():
+        raise RuntimeError("Holdout data reached development code; only `evaluate --holdout` may use it.")
