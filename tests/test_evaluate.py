@@ -36,6 +36,18 @@ def test_report_with_trades(project, walk):
     assert "By symbol and side" in md and "LONG" in md
 
 
+def test_holdout_runs_once(project, walk):
+    first = ev.run_holdout(project, "logreg")
+    hold = pd.Timestamp(project.splits.holdout_start, tz="UTC")
+    assert first["start"] >= hold + pd.Timedelta(hours=1)
+    assert (resolve_path(project, "reports") / "holdout.md").exists()
+    with pytest.raises(SystemExit, match="already evaluated"):
+        ev.run_holdout(project, "logreg")
+    again = ev.run_holdout(project, "logreg", i_understand=True)
+    assert "re-run" in (resolve_path(project, "reports") / "holdout.md").read_text()
+    assert again["model"]["trades"] == first["model"]["trades"]
+
+
 def test_final_bundle_trained_before_holdout(project, walk):
     b = ev.fit_final(project, "logreg", ["ETHUSDT"])["ETHUSDT"]
     hold = pd.Timestamp(project.splits.holdout_start, tz="UTC")
