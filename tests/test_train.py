@@ -29,3 +29,21 @@ def test_fold_metrics_known_values():
     assert m["prior_log_loss"] == pytest.approx(np.log(3))
     assert m["recall_WIN"] == 0.5 and m["precision_WIN"] == 1.0
     assert m["confusion"] == [[1, 0, 0], [0, 1, 0], [1, 0, 1]]
+
+
+def test_logreg_walk_forward(project):
+    oof = tr.run(project, "logreg")
+    folds = {f.k: f for f in make_folds(project)}
+    assert sorted(oof["fold"].unique()) == [1, 2, 3]
+    for k, g in oof.groupby("fold"):
+        assert g["time"].min() >= folds[k].test_start and g["time"].max() < folds[k].test_end
+    for side in tr.SIDES:
+        p = oof[[f"{side}_{c}" for c in tr.PROBA]].to_numpy()
+        np.testing.assert_allclose(p.sum(axis=1), 1.0)
+    assert set(oof["symbol"]) == {"BTCUSDT", "ETHUSDT"}
+    assert (resolve_path(project, "reports") / "train_logreg.md").exists()
+    pd.testing.assert_frame_equal(tr.load_oof(project, "logreg"), oof)
+    # labels in the OOF file are the real labels for those rows
+    lab = tr.assemble_dataset(project, "BTCUSDT").df
+    b = oof[oof["symbol"] == "BTCUSDT"].set_index("time")
+    assert (lab.loc[b.index, "long_label"].to_numpy() == b["long_label"].to_numpy()).all()
