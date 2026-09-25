@@ -1,0 +1,26 @@
+# Data and model artifacts are never committed
+data/
+models/*.pkl
+models/*.pt
+models/*.json
+*.parquet
+*.zip
+*.CHECKSUM
+
+# Generated reports (only reports/README.md is tracked)
+reports/*
+!reports/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
