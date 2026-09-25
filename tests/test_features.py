@@ -46,3 +46,11 @@ def test_time_features(cfg, hourly):
     t = pd.Timestamp("2024-01-03 06:00", tz="UTC")        # a Wednesday, 06:00
     assert f.loc[t, "hour_sin"] == pytest.approx(1.0)
     assert f.loc[t, "dow_sin"] == pytest.approx(np.sin(2 * np.pi * 2 / 7))
+
+
+def test_context_columns_only_for_other_symbols(cfg, hourly):
+    feats = ft.build_features(hourly, cfg)
+    btc, eth = feats["BTCUSDT"], feats["ETHUSDT"]
+    assert not any(c.startswith("btc_") for c in btc.columns)
+    assert "btc_ret_1h" in eth.columns and "btc_hour_sin" not in eth.columns
+    pd.testing.assert_series_equal(eth["btc_rsi14"], btc["rsi14"].reindex(eth.index), check_names=False)
