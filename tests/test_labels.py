@@ -128,3 +128,34 @@ def test_gap_in_window_skips_row():
 def test_missing_entry_minute_skips_row():
     lab, _ = hand_case(drop=[0])
     assert lab.empty
+
+
+def test_short_side_is_mirrored():
+    lab, bar = hand_case([(30, "low", 97.9)])
+    r = lab.loc[bar]
+    assert r["short_label"] == lb.WIN and r["short_minutes"] == 31
+    assert r["short_ret"] == pytest.approx(0.02) and r["short_exit"] == pytest.approx(98)
+    assert r["long_label"] == lb.LOSS and r["long_minutes"] == 31      # 97.9 is also below the long stop
+
+    lab, bar = hand_case([(40, "high", 101.2)])
+    r = lab.loc[bar]
+    assert r["short_label"] == lb.LOSS and r["short_ret"] == pytest.approx(-0.01)
+    assert r["long_label"] == lb.NO_TRADE
+
+
+def test_entry_is_first_minute_after_bar_close():
+    lab, bar = hand_case(entry_open=100.2)
+    r = lab.loc[bar]
+    assert r["entry"] == 100.2                               # open of bar close + 0 min, not the bar close
+    lab2, _ = hand_case([(0, "high", 102.3)], entry_open=100.2)
+    assert lab2.loc[bar, "long_label"] == lb.WIN             # entry minute's own high counts ...
+    assert lab2.loc[bar, "long_minutes"] == 1                # ... and is minute 1 of the trade
+    lab3, _ = hand_case([(0, "high", 102.1)], entry_open=100.2)
+    assert lab3.loc[bar, "long_label"] == lb.NO_TRADE        # TP is 102.2 because entry is 100.2
+
+
+def test_barrier_outcome_single_trade():
+    hi = np.array([100.0, 101.0, 102.5])
+    lo = np.array([99.5, 99.5, 99.5])
+    assert lb.barrier_outcome(hi, lo, 102.0, 100.0, 102.0, 99.0, +1) == (lb.WIN, pytest.approx(0.02), 3)
+    assert lb.barrier_outcome(hi, lo, 102.0, 100.0, 98.0, 101.0, -1) == (lb.LOSS, pytest.approx(-0.01), 2)
