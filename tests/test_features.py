@@ -30,3 +30,12 @@ def test_expected_columns(cfg, hourly):
     complete = f.dropna()
     assert len(complete) > 200                       # EMA200 warm-up leaves most rows complete
     assert complete["rsi14"].between(0, 1).all()
+
+
+def test_scale_free(cfg, hourly):
+    h = hourly["BTCUSDT"]
+    scaled = h.copy()
+    scaled[["open", "high", "low", "close"]] *= 1000.0
+    a = ft.compute_features(h, cfg.features)
+    b = ft.compute_features(scaled, cfg.features)
+    pd.testing.assert_frame_equal(a, b, rtol=1e-9, atol=1e-12)
