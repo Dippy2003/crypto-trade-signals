@@ -100,6 +100,30 @@ def fit_xgb(X_fit, y_fit, X_val, y_val, cfg: Config):
 TRAINERS: dict[str, Callable] = {"logreg": fit_logreg, "xgb": fit_xgb}
 
 
+def importance(model, features: list[str]) -> pd.Series:
+    """Gain importance for XGBoost, mean |standardized coefficient| for logistic regression."""
+    if isinstance(model, XGBClassifier):
+        vals = model.feature_importances_
+    else:
+        vals = np.abs(model[-1].coef_).mean(axis=0)
+    s = pd.Series(vals, index=features, dtype=float)
+    return s / s.sum() if s.sum() > 0 else s
+
+
+def plot_importance(imp: pd.Series, title: str, path, top_n: int) -> None:
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    top = imp.sort_values().tail(top_n)
+    fig, ax = plt.subplots(figsize=(7, 0.28 * len(top) + 1.2))
+    ax.barh(top.index, top.values, color="#4c72b0")
+    ax.set_xlabel("share of importance (mean over folds)")
+    ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(path, dpi=110)
+    plt.close(fig)
+
+
 def fold_metrics(y: np.ndarray, proba: np.ndarray, prior: np.ndarray) -> dict:
     """Log-loss (model and class-prior baseline), per-class precision/recall, confusion matrix."""
     pred = np.array(CLASSES)[proba.argmax(axis=1)]
