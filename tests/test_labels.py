@@ -118,3 +118,13 @@ def test_timeout_is_no_trade():
     assert r["long_minutes"] == H and r["short_minutes"] == H
     assert r["long_ret"] == pytest.approx(0.003) and r["short_ret"] == pytest.approx(-0.003)
     assert r["long_exit"] == pytest.approx(100.3)
+
+
+def test_gap_in_window_skips_row():
+    lab, _ = hand_case(drop=[300])
+    assert lab.empty
+
+
+def test_missing_entry_minute_skips_row():
+    lab, _ = hand_case(drop=[0])
+    assert lab.empty
