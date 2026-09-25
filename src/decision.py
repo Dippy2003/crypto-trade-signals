@@ -56,3 +56,25 @@ def decide(p_long: np.ndarray, p_short: np.ndarray, atr_frac: np.ndarray,
     go_l = ok_l & (~ok_s | (ev_l > ev_s))
     go_s = ok_s & (~ok_l | (ev_s > ev_l))
     return np.where(go_l, LONG, np.where(go_s, SHORT, FLAT)), ev_l, ev_s
+
+
+def threshold_grid(cfg: Config) -> np.ndarray:
+    d = cfg.decision
+    return np.round(np.arange(d.threshold_min, d.threshold_max + d.threshold_step / 2, d.threshold_step), 6)
+
+
+def choose_threshold(p_win: np.ndarray, ev: np.ndarray, net: np.ndarray, cfg: Config) -> tuple[float, float, int]:
+    """Threshold with the highest total net profit (>= min_trades trades). Returns (thr, profit, trades).
+
+    If no threshold makes money the side is switched off (threshold = inf).
+    """
+    best = (NO_THRESHOLD, 0.0, 0)
+    for thr in threshold_grid(cfg):
+        sel = (p_win >= thr) & (ev > 0)
+        n = int(sel.sum())
+        if n < cfg.decision.min_trades:
+            continue
+        profit = float(net[sel].sum())
+        if profit > best[1]:
+            best = (float(thr), profit, n)
+    return best
