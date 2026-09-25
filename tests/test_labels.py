@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from src import labels as lb
 from src.data_loader import to_hourly
@@ -57,3 +58,32 @@ def test_label_distribution_sums_to_100():
     dist = lb.label_distribution({"BTCUSDT": lb.label_symbol(h, m, 2.0, 1.0, 12, 14)})
     assert set(dist["year"]) == {2024, 2025}
     np.testing.assert_allclose(dist[["LOSS", "NO TRADE", "WIN"]].sum(axis=1), 100)
+
+
+# ---------------------------------------------------------------------------
+# Hand-built paths. Hourly bars have range 1.0 so ATR(14) = 1.0; price sits at 100.
+# LONG: TP 102, SL 99.   SHORT: TP 98, SL 101.   Horizon 12h = 720 minutes.
+# ---------------------------------------------------------------------------
+H = 720
+T0 = pd.Timestamp("2024-01-01", tz="UTC")
+
+
+def hand_case(edit=None, entry_open=100.0, last_close=100.0, drop=()):
+    """Return (labels, bar_time). Only bar 15 has a complete minute window."""
+    idx = pd.date_range(T0, periods=20, freq="1h", tz="UTC")
+    h = pd.DataFrame({"open": 100.0, "high": 100.5, "low": 99.5, "close": 100.0, "volume": 1.0}, index=idx)
+    bar = idx[15]
+    mi = pd.date_range(bar + pd.Timedelta(hours=1), periods=H, freq="1min", tz="UTC")
+    m = pd.DataFrame({"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0, "volume": 1.0}, index=mi)
+    m.iloc[0, m.columns.get_loc("open")] = entry_open
+    m.iloc[-1, m.columns.get_loc("close")] = last_close
+    for minute, col, value in (edit or []):
+        m.iloc[minute, m.columns.get_loc(col)] = value
+    m = m.drop(m.index[list(drop)])
+    return lb.label_symbol(h, m, 2.0, 1.0, 12, 14), bar
+
+
+def test_atr_is_one_for_hand_built_bars():
+    lab, bar = hand_case()
+    assert list(lab.index) == [bar]
+    assert lab.loc[bar, "atr"] == pytest.approx(1.0)
