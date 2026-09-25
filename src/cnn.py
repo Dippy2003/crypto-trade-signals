@@ -134,3 +134,55 @@ def image_rows(cfg: Config, symbol: str) -> tuple[pd.DataFrame, list[str]]:
     paths = [image_path(cfg, symbol, t) for t in ds.df.index]
     has = np.array([p.exists() for p in paths])
     return ds.df[has], [str(p) for p, h in zip(paths, has) if h]
+
+
+def walk_forward_cnn(cfg: Config, symbols: list[str] | None = None,
+                     folds: list[int] | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    dev = device()
+    print(f"CNN on {dev}")
+    ensure_dir(resolve_path(cfg, "models"))
+    rng = np.random.default_rng(cfg.model.seed)
+    oof_parts, metrics = [], []
+    for sym in symbols or cfg.symbols:
+        df, paths = image_rows(cfg, sym)
+        if df.empty:
+            print(f"{sym}: no chart images; run `python -m src.chart_images` first")
+            continue
+        t, P = df.index, np.array(paths)
+        for fold in make_folds(cfg):
+            if folds and fold.k not in folds:
+                continue
+            train, test = fold_masks(t, fold, cfg)
+            if train.sum() < cfg.splits.min_train_rows or not test.any():
+                continue
+            fit, val = fit_val_masks(t, train, cfg)
+            if cfg.cnn.train_subsample < 1:
+                fit &= rng.random(len(fit)) < cfg.cnn.train_subsample
+            part = pd.DataFrame({"symbol": sym, "fold": fold.k}, index=t[test])
+            for side in tr.SIDES:
+                y = df[f"{side}_label"].to_numpy()
+                print(f"cnn {sym} {side} fold {fold.k}: fit {fit.sum():,} val {val.sum():,} test {test.sum():,}")
+                model = fit_cnn(list(P[fit]), y[fit], list(P[val]), y[val], cfg, dev)
+                proba = predict(model, list(P[test]), cfg, dev)
+                for j, name in enumerate(tr.PROBA):
+                    part[f"{side}_{name}"] = proba[:, j]
+                part[f"{side}_label"] = y[test]
+                prior = np.bincount(y[train], minlength=3) / train.sum()
+                metrics.append({"model": "cnn", "symbol": sym, "side": side, "fold": fold.k,
+                                "test_start": fold.test_start.date(), "n_train": int(fit.sum()),
+                                **tr.fold_metrics(y[test], proba, prior)})
+                torch.save(model.state_dict(), resolve_path(cfg, "models") / f"cnn_{sym}_{side}_fold{fold.k}.pt")
+            oof_parts.append(part)
+    if not oof_parts:
+        raise SystemExit("No usable CNN folds (missing images or too little training data)")
+    return pd.concat(oof_parts).rename_axis("time").reset_index(), pd.DataFrame(metrics)
+
+
+def run(cfg: Config, symbols: list[str] | None = None, folds: list[int] | None = None) -> pd.DataFrame:
+    oof, m = walk_forward_cnn(cfg, symbols, folds)
+    ensure_dir(tr.oof_path(cfg, "cnn").parent)
+    oof.to_parquet(tr.oof_path(cfg, "cnn"))
+    report = ensure_dir(resolve_path(cfg, "reports")) / "train_cnn.md"
+    report.write_text(tr.metrics_markdown(m, "cnn"), encoding="utf-8")
+    print(f"Saved {tr.oof_path(cfg, 'cnn')} and {report}")
+    return oof
