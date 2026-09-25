@@ -45,3 +45,14 @@ def expected_value(p: np.ndarray, atr_frac: np.ndarray, cfg: Config) -> np.ndarr
     lc = cfg.labels
     return (p[:, 2] * lc.tp_atr * atr_frac - p[:, 0] * lc.sl_atr * atr_frac
             + p[:, 1] * cfg.decision.timeout_return - round_trip_cost(cfg))
+
+
+def decide(p_long: np.ndarray, p_short: np.ndarray, atr_frac: np.ndarray,
+           thr_long: float, thr_short: float, cfg: Config) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Returns (decision in {1, 0, -1}, EV long, EV short)."""
+    ev_l, ev_s = expected_value(p_long, atr_frac, cfg), expected_value(p_short, atr_frac, cfg)
+    ok_l = (p_long[:, 2] >= thr_long) & (ev_l > 0)
+    ok_s = (p_short[:, 2] >= thr_short) & (ev_s > 0)
+    go_l = ok_l & (~ok_s | (ev_l > ev_s))
+    go_s = ok_s & (~ok_l | (ev_s > ev_l))
+    return np.where(go_l, LONG, np.where(go_s, SHORT, FLAT)), ev_l, ev_s

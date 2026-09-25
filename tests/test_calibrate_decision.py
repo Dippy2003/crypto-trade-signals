@@ -46,3 +46,17 @@ def test_expected_value(cfg):
     p = np.array([[0.5, 0.2, 0.3]])
     # 0.3 * 2 * 1% - 0.5 * 1 * 1% - 0.24% costs
     assert dc.expected_value(p, np.array([0.01]), cfg)[0] == pytest.approx(0.006 - 0.005 - 0.0024)
+
+
+def test_decide_rule(cfg):
+    atr = np.full(5, 0.02)
+    pl = np.array([[.3, .1, .6], [.3, .1, .6], [.6, .1, .3], [.3, .1, .6], [.45, .2, .35]])
+    ps = np.array([[.6, .1, .3], [.2, .1, .7], [.3, .1, .6], [.3, .1, .6], [.6, .1, .3]])
+    dec, ev_l, ev_s = dc.decide(pl, ps, atr, 0.5, 0.5, cfg)
+    assert dec[0] == dc.LONG                   # only long passes
+    assert dec[1] == dc.SHORT                  # both pass, short has the higher EV
+    assert dec[2] == dc.SHORT                  # only short passes
+    assert dec[3] == dc.FLAT                   # identical EVs: neither beats the other
+    assert dec[4] == dc.FLAT                   # below threshold
+    dec_small_atr, *_ = dc.decide(pl[:1], ps[:1], np.array([0.001]), 0.5, 0.5, cfg)
+    assert dec_small_atr[0] == dc.FLAT         # EV after costs is negative when ATR is tiny
