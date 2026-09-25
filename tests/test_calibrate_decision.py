@@ -96,3 +96,20 @@ def test_calibration_does_not_see_its_own_fold(project, cal_oof):
     again = cb.calibrate_oof(scrambled, project)
     cols = [f"long_{x}" for x in cb.CAL]
     pd.testing.assert_frame_equal(again.loc[k3, cols], cal.loc[k3, cols])
+
+
+def test_decisions_use_only_earlier_folds(project, cal_oof):
+    _, cal = cal_oof
+    mk = dc.attach_market(cal, project)
+    assert mk["atr_frac"].gt(0).all() and mk["long_net"].notna().all()
+    dec, table = dc.decide_oof(mk, project)
+    assert set(dec["decision"].unique()) <= {dc.LONG, dc.FLAT, dc.SHORT}
+    assert (dec.loc[~dec["calibrated"], "decision"] == dc.FLAT).all()
+    assert list(table["fold"].unique()) == [2, 3]
+    assert (table.loc[table["fold"] == 2, "val_rows"] == 0).all()   # fold 2 has no calibrated history
+
+    # perturbing fold 3's realized outcomes must not change fold 3's thresholds
+    mk2 = mk.copy()
+    mk2.loc[mk2["fold"] == 3, ["long_net", "short_net"]] *= -1
+    _, table2 = dc.decide_oof(mk2, project)
+    pd.testing.assert_frame_equal(table, table2)

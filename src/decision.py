@@ -92,3 +92,47 @@ def attach_market(oof: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     for side, sgn in (("long", LONG), ("short", SHORT)):
         out[f"{side}_net"] = net_return(sgn, out["entry"].to_numpy(), out[f"{side}_exit"].to_numpy(), cfg)
     return out
+
+
+def _probs(df: pd.DataFrame, side: str) -> np.ndarray:
+    return df[[f"{side}_{c}" for c in CAL]].to_numpy()
+
+
+def decide_oof(cal: pd.DataFrame, cfg: Config) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Walk-forward decisions. Thresholds for fold k come from calibrated rows of earlier folds.
+
+    ``cal`` must have calibrated columns (calibrate_oof) and market columns (attach_market).
+    Returns (rows with decision / ev / confidence, threshold table).
+    """
+    out = cal.copy()
+    out["decision"], out["ev"], out["confidence"] = FLAT, 0.0, np.nan
+    out["thr_long"], out["thr_short"] = NO_THRESHOLD, NO_THRESHOLD
+    starts = {f.k: f.test_start for f in make_folds(cfg)}
+    table = []
+    for sym, g in cal.groupby("symbol"):
+        for k in sorted(g["fold"].unique()):
+            rows = g.index[(g["fold"] == k) & g["calibrated"]]
+            if rows.empty:
+                continue
+            val = g[prior_rows(g, starts[k], k, cfg) & g["calibrated"]]
+            thr = {}
+            for side in SIDES:
+                if len(val) == 0:
+                    thr[side] = (NO_THRESHOLD, 0.0, 0)
+                    continue
+                pv = _probs(val, side)
+                thr[side] = choose_threshold(pv[:, 2], expected_value(pv, val["atr_frac"].to_numpy(), cfg),
+                                             val[f"{side}_net"].to_numpy(), cfg)
+            cur = cal.loc[rows]
+            pl, ps = _probs(cur, "long"), _probs(cur, "short")
+            dec, ev_l, ev_s = decide(pl, ps, cur["atr_frac"].to_numpy(), thr["long"][0], thr["short"][0], cfg)
+            out.loc[rows, "decision"] = dec
+            out.loc[rows, "ev"] = np.where(dec == LONG, ev_l, np.where(dec == SHORT, ev_s, 0.0))
+            out.loc[rows, "confidence"] = np.where(dec == LONG, pl[:, 2], np.where(dec == SHORT, ps[:, 2], np.nan))
+            out.loc[rows, "thr_long"], out.loc[rows, "thr_short"] = thr["long"][0], thr["short"][0]
+            table.append({"symbol": sym, "fold": k, "val_rows": len(val),
+                          **{f"thr_{s}": thr[s][0] for s in SIDES},
+                          **{f"val_profit_{s}": thr[s][1] for s in SIDES},
+                          **{f"val_trades_{s}": thr[s][2] for s in SIDES},
+                          "longs": int((dec == LONG).sum()), "shorts": int((dec == SHORT).sum())})
+    return out, pd.DataFrame(table)
