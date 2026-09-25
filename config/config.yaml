@@ -23,7 +23,7 @@ download:
 
 data:
   min_minutes_per_hour: 50       # hourly bars with fewer 1m bars are dropped
-  us_threshold: 1.0e14           # open_time above this is microseconds (2025+ files)
+  us_threshold: 1.0e+14          # open_time above this is microseconds (2025+ files)
 
 labels:
   tp_atr: 2.0                    # take-profit distance in ATRs
