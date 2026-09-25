@@ -47,3 +47,12 @@ def test_trade_stats_and_exposure():
     assert s["profit_factor"] == pytest.approx(1.5)
     # covered: 0-3h, 5-6h, 8-9h = 5h of 10h
     assert mt.exposure(tr, T, T + pd.Timedelta(hours=10)) == pytest.approx(0.5)
+
+
+def test_buy_and_hold(cfg):
+    idx = hours(25)
+    closes = {"A": pd.Series(np.linspace(100, 110, 25), index=idx), "B": pd.Series(np.linspace(50, 45, 25), index=idx)}
+    stats, eq = mt.buy_and_hold(closes, idx[0], idx[-1], cfg)
+    expected = (1 - round_trip_cost(cfg)) * (1.10 + 0.90) / 2 - 1
+    assert stats["net_return"] == pytest.approx(expected)
+    assert stats["exposure"] == 1.0 and eq.index[0] == idx[0]
