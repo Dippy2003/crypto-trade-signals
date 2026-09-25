@@ -61,3 +61,42 @@ class Calibrator:
 
 def fit_calibrator(proba: np.ndarray, y: np.ndarray, cfg: Config) -> Calibrator:
     return Calibrator(cfg.calibration.method).fit(proba, y)
+
+
+def prior_rows(oof: pd.DataFrame, fold_start: pd.Timestamp, k: int, cfg: Config) -> np.ndarray:
+    """Rows from earlier folds whose labels were known one embargo before ``fold_start``."""
+    emb = pd.Timedelta(hours=cfg.splits.embargo_h)
+    ends = label_end(pd.DatetimeIndex(oof["time"]), cfg)
+    return np.asarray((oof["fold"] < k) & (ends <= fold_start - emb))
+
+
+def calibrate_oof(oof: pd.DataFrame, cfg: Config) -> pd.DataFrame:
+    """Add ``{side}_c_*`` calibrated columns and a ``calibrated`` flag, walking forward fold by fold."""
+    out = oof.copy()
+    for side in SIDES:
+        for c in CAL:
+            out[f"{side}_{c}"] = np.nan
+    out["calibrated"] = False
+    starts = {f.k: f.test_start for f in make_folds(cfg)}
+    for sym, g in oof.groupby("symbol"):
+        for k in sorted(g["fold"].unique()):
+            prior = g[prior_rows(g, starts[k], k, cfg)]
+            if len(prior) < cfg.calibration.min_rows:
+                continue
+            rows = g.index[g["fold"] == k]
+            for side in SIDES:
+                cal = fit_calibrator(prior[[f"{side}_{p}" for p in PROBA]].to_numpy(),
+                                     prior[f"{side}_label"].to_numpy(), cfg)
+                out.loc[rows, [f"{side}_{c}" for c in CAL]] = cal.transform(
+                    oof.loc[rows, [f"{side}_{p}" for p in PROBA]].to_numpy())
+            out.loc[rows, "calibrated"] = True
+    return out
+
+
+def reliability(p: np.ndarray, hit: np.ndarray, bins: int = 10) -> pd.DataFrame:
+    """Mean predicted vs observed frequency per probability bin (for reports)."""
+    edges = np.linspace(0, 1, bins + 1)
+    b = np.clip(np.digitize(p, edges) - 1, 0, bins - 1)
+    df = pd.DataFrame({"bin": b, "p": p, "hit": hit})
+    g = df.groupby("bin").agg(predicted=("p", "mean"), observed=("hit", "mean"), n=("p", "size"))
+    return g.reset_index(drop=True)
