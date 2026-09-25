@@ -124,6 +124,10 @@ def plot_importance(imp: pd.Series, title: str, path, top_n: int) -> None:
     plt.close(fig)
 
 
+def model_path(cfg: Config, kind: str, symbol: str, side: str, fold: int):
+    return resolve_path(cfg, "models") / f"{kind}_{symbol}_{side}_fold{fold}.pkl"
+
+
 def fold_metrics(y: np.ndarray, proba: np.ndarray, prior: np.ndarray) -> dict:
     """Log-loss (model and class-prior baseline), per-class precision/recall, confusion matrix."""
     pred = np.array(CLASSES)[proba.argmax(axis=1)]
@@ -202,11 +206,29 @@ def load_oof(cfg: Config, kind: str) -> pd.DataFrame:
 
 
 def run(cfg: Config, kind: str, symbols: list[str] | None = None) -> pd.DataFrame:
-    oof, m = walk_forward(cfg, kind, symbols)
+    ensure_dir(resolve_path(cfg, "models"))
+    imps: dict[tuple[str, str], list[pd.Series]] = {}
+
+    def on_model(kind, sym, side, fold, model, ds, masks):
+        joblib.dump({"model": model, "features": ds.features}, model_path(cfg, kind, sym, side, fold.k))
+        imps.setdefault((sym, side), []).append(importance(model, ds.features))
+
+    oof, m = walk_forward(cfg, kind, symbols, on_model=on_model)
     ensure_dir(oof_path(cfg, kind).parent)
     oof.to_parquet(oof_path(cfg, kind))
-    report = ensure_dir(resolve_path(cfg, "reports")) / f"train_{kind}.md"
-    report.write_text(metrics_markdown(m, kind), encoding="utf-8")
+
+    reports = ensure_dir(resolve_path(cfg, "reports"))
+    figs = ensure_dir(reports / "figures")
+    top_n = cfg.model.importance_top_n
+    lines = [metrics_markdown(m, kind), "## Feature importance", ""]
+    for (sym, side), parts in imps.items():
+        imp = pd.concat(parts, axis=1).mean(axis=1).sort_values(ascending=False)
+        fig = figs / f"importance_{kind}_{sym}_{side}.png"
+        plot_importance(imp, f"{kind} {sym} {side}", fig, top_n)
+        lines += [f"### {sym} {side}", "", f"![importance](figures/{fig.name})", "",
+                  "Top 5: " + ", ".join(f"{k} ({v:.3f})" for k, v in imp.head(5).items()), ""]
+    report = reports / f"train_{kind}.md"
+    report.write_text("\n".join(lines), encoding="utf-8")
     print(f"Saved {oof_path(cfg, kind)} and {report}")
     return oof
 

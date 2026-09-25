@@ -53,3 +53,19 @@ def test_class_weights_balance_classes():
     y = np.array([0] * 6 + [1] * 3 + [2] * 1)
     w = tr.class_weights(y)
     assert [w[y == c].sum() for c in (0, 1, 2)] == pytest.approx([10 / 3] * 3)
+
+
+def test_xgb_early_stopping_saves_models_and_importance(project):
+    oof = tr.run(project, "xgb")
+    assert sorted(oof["fold"].unique()) == [1, 2, 3]
+    np.testing.assert_allclose(oof[[f"long_{c}" for c in tr.PROBA]].sum(axis=1), 1.0, rtol=1e-5)
+    saved = tr.model_path(project, "xgb", "ETHUSDT", "short", 3)
+    assert saved.exists()
+    import joblib
+    bundle = joblib.load(saved)
+    model = bundle["model"]
+    assert model.best_iteration < project.model.xgb.n_estimators - 1     # stopped early on validation
+    assert "btc_ret_1h" in bundle["features"]
+    reports = resolve_path(project, "reports")
+    assert (reports / "figures" / "importance_xgb_BTCUSDT_long.png").exists()
+    assert "Feature importance" in (reports / "train_xgb.md").read_text()
