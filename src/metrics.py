@@ -28,6 +28,16 @@ def drawdown(equity: pd.Series) -> pd.Series:
     return equity / equity.cummax() - 1
 
 
+def sharpe_sortino(equity: pd.Series, periods_per_year: int) -> tuple[float, float]:
+    r = equity.pct_change().dropna()
+    if len(r) < 2 or r.std() == 0:
+        return 0.0, 0.0
+    ann = np.sqrt(periods_per_year)
+    downside = np.sqrt((np.minimum(r, 0) ** 2).mean())
+    sortino = float(r.mean() / downside * ann) if downside > 0 else float("inf")
+    return float(r.mean() / r.std() * ann), sortino
+
+
 COLUMNS = [("net_return", "Net return"), ("trades", "Trades"), ("win_rate", "Win rate"),
            ("avg_win", "Avg win"), ("avg_loss", "Avg loss"), ("profit_factor", "Profit factor"),
            ("mean_trade_ret", "Mean trade"), ("max_drawdown", "Max DD"), ("sharpe", "Sharpe"),
