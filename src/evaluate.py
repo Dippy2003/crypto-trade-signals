@@ -211,3 +211,22 @@ def fit_final(cfg: Config, kind: str, symbols: list[str] | None = None) -> dict[
 
 def load_bundle(cfg: Config, kind: str, symbol: str) -> dict:
     return joblib.load(final_bundle_path(cfg, kind, symbol))
+
+
+def bundle_decide(bundle: dict, feats: pd.DataFrame, atr_frac: np.ndarray, cfg: Config) -> pd.DataFrame:
+    """Calibrated probabilities and decisions for feature rows using a final bundle."""
+    X = feats[bundle["features"]].to_numpy()
+    out = pd.DataFrame(index=feats.index)
+    probs = {}
+    for side in tr.SIDES:
+        raw = tr.predict_proba(bundle["models"][side], X)
+        probs[side] = bundle["calibrators"][side].transform(raw)
+        for j, c in enumerate(CAL):
+            out[f"{side}_{c}"] = probs[side][:, j]
+    dec, ev_l, ev_s = decide(probs["long"], probs["short"], atr_frac,
+                             bundle["thresholds"]["long"], bundle["thresholds"]["short"], cfg)
+    out["decision"] = dec
+    out["ev"] = np.where(dec == LONG, ev_l, np.where(dec == SHORT, ev_s, 0.0))
+    out["confidence"] = np.where(dec == LONG, probs["long"][:, 2],
+                                 np.where(dec == SHORT, probs["short"][:, 2], np.nan))
+    return out
