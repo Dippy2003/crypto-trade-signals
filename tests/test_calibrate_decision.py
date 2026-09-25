@@ -72,3 +72,27 @@ def test_choose_threshold(cfg):
     assert thr == dc.NO_THRESHOLD and n == 0   # nothing profitable -> do not trade
     thr, *_ = dc.choose_threshold(p, -np.ones_like(p), net, cfg)
     assert thr == dc.NO_THRESHOLD              # negative EV everywhere -> no trades
+
+
+@pytest.fixture(scope="module")
+def cal_oof(project):
+    oof = tr.run(project, "logreg")
+    return oof, cb.calibrate_oof(oof, project)
+
+
+def test_first_fold_is_warm_up(project, cal_oof):
+    oof, cal = cal_oof
+    assert not cal.loc[cal["fold"] == 1, "calibrated"].any()
+    assert cal.loc[cal["fold"] > 1, "calibrated"].all()
+    c = cal.loc[cal["calibrated"], [f"long_{x}" for x in cb.CAL]].to_numpy()
+    np.testing.assert_allclose(c.sum(axis=1), 1.0)
+
+
+def test_calibration_does_not_see_its_own_fold(project, cal_oof):
+    oof, cal = cal_oof
+    scrambled = oof.copy()
+    k3 = scrambled["fold"] == 3
+    scrambled.loc[k3, "long_label"] = np.random.default_rng(0).integers(0, 3, k3.sum())
+    again = cb.calibrate_oof(scrambled, project)
+    cols = [f"long_{x}" for x in cb.CAL]
+    pd.testing.assert_frame_equal(again.loc[k3, cols], cal.loc[k3, cols])
