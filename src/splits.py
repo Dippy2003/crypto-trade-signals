@@ -75,6 +75,17 @@ def fold_masks(times: pd.DatetimeIndex, fold: Fold, cfg: Config) -> tuple[np.nda
     return train, test
 
 
+def fit_val_masks(times: pd.DatetimeIndex, train: np.ndarray, cfg: Config) -> tuple[np.ndarray, np.ndarray]:
+    """Split a training mask into fit rows and a purged validation tail (for early stopping)."""
+    idx = np.flatnonzero(train)
+    n_val = max(1, int(round(len(idx) * cfg.splits.val_fraction)))
+    val = np.zeros(len(times), dtype=bool)
+    val[idx[-n_val:]] = True
+    val_start, val_end = times[idx[-n_val]], times[idx[-1]] + pd.Timedelta(hours=1)
+    fit = train & ~val & outside(times, val_start, val_end, cfg)
+    return fit, val
+
+
 def assert_no_holdout(times: pd.DatetimeIndex, cfg: Config) -> None:
     if not development_mask(times, cfg).all():
         raise RuntimeError("Holdout data reached development code; only `evaluate --holdout` may use it.")
