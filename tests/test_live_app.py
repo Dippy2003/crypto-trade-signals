@@ -122,3 +122,10 @@ def test_app_renders_without_network():
     assert not at.exception
     assert at.title[0].value == "Crypto trade signals"
     assert [s.label for s in at.selectbox] == ["Symbol", "Model"]
+
+
+def test_chart_figure(project):
+    from src.app import CHART_PX, chart_figure
+    fig = chart_figure(load_hourly(project, "BTCUSDT"), project)
+    w, h = fig.get_size_inches() * fig.dpi
+    assert round(w) == CHART_PX and round(h) == CHART_PX
