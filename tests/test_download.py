@@ -54,6 +54,24 @@ def test_month_range_and_last_complete_month():
     assert dl.last_complete_month(date(2026, 1, 15)) == "2025-12"
 
 
+def test_downloads_verifies_and_skips_existing(cfg):
+    files = {}
+    for m in (1, 2):
+        rf = dl.monthly_file(cfg, "BTCUSDT", 2024, m)
+        files |= serve(cfg, rf, f"zip-{m}".encode())
+    s = FakeSession(files)
+    summary = dl.run(cfg, session=s, today=date(2024, 3, 10))
+    assert summary[dl.DOWNLOADED] == 2 and summary[dl.FAILED] == 0
+    raw = dl.resolve_path(cfg, "raw")
+    assert (raw / "BTCUSDT-1m-2024-01.zip").read_bytes() == b"zip-1"
+    assert (raw / "BTCUSDT-1m-2024-01.zip.CHECKSUM").exists()
+
+    s2 = FakeSession(files)
+    summary = dl.run(cfg, session=s2, today=date(2024, 3, 10))
+    assert summary[dl.SKIPPED] == 2
+    assert not any(u.endswith(".zip") for u in s2.calls)      # existing zips were not downloaded again
+
+
 def test_retries_after_connection_error(cfg):
     rf = dl.monthly_file(cfg, "BTCUSDT", 2024, 1)
     s = FakeSession(serve(cfg, rf, b"payload"), flaky={rf.url: 2})
