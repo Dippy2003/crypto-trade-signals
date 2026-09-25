@@ -54,3 +54,11 @@ def test_context_columns_only_for_other_symbols(cfg, hourly):
     assert not any(c.startswith("btc_") for c in btc.columns)
     assert "btc_ret_1h" in eth.columns and "btc_hour_sin" not in eth.columns
     pd.testing.assert_series_equal(eth["btc_rsi14"], btc["rsi14"].reindex(eth.index), check_names=False)
+
+
+def test_dropped_hour_does_not_shift_returns(cfg, hourly):
+    h = hourly["BTCUSDT"].drop(hourly["BTCUSDT"].index[300])
+    f = ft.compute_features(h, cfg.features)
+    after = h.index[300]                                   # the bar right after the missing hour
+    assert np.isnan(f.loc[after, "ret_1h"])                # its 1h-ago bar does not exist
+    assert f.loc[after, "ret_2h"] == pytest.approx(h.loc[after, "close"] / h["close"].iloc[299] - 1)
