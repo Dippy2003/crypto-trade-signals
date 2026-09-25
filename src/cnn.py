@@ -37,8 +37,30 @@ def device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
+class ChartDataset(Dataset):
+    def __init__(self, paths: list[str], labels: np.ndarray | None = None):
+        self.paths = paths
+        self.labels = labels
+
+    def __len__(self) -> int:
+        return len(self.paths)
+
+    def __getitem__(self, i: int):
+        x = TO_TENSOR(Image.open(self.paths[i]).convert("RGB"))
+        y = -1 if self.labels is None else int(self.labels[i])
+        return x, y
+
+
 def build_model(pretrained: bool) -> nn.Module:
     weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
     m = models.resnet18(weights=weights)
     m.fc = nn.Linear(m.fc.in_features, len(tr.CLASSES))
     return m
+
+
+def image_rows(cfg: Config, symbol: str) -> tuple[pd.DataFrame, list[str]]:
+    """Development rows that have a chart image, and their image paths."""
+    ds = tr.development_data(tr.assemble_dataset(cfg, symbol), cfg)
+    paths = [image_path(cfg, symbol, t) for t in ds.df.index]
+    has = np.array([p.exists() for p in paths])
+    return ds.df[has], [str(p) for p, h in zip(paths, has) if h]
