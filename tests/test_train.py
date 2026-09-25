@@ -47,3 +47,9 @@ def test_logreg_walk_forward(project):
     lab = tr.assemble_dataset(project, "BTCUSDT").df
     b = oof[oof["symbol"] == "BTCUSDT"].set_index("time")
     assert (lab.loc[b.index, "long_label"].to_numpy() == b["long_label"].to_numpy()).all()
+
+
+def test_class_weights_balance_classes():
+    y = np.array([0] * 6 + [1] * 3 + [2] * 1)
+    w = tr.class_weights(y)
+    assert [w[y == c].sum() for c in (0, 1, 2)] == pytest.approx([10 / 3] * 3)
