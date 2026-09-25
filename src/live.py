@@ -89,3 +89,52 @@ def fetch_minutes(symbol: str, cfg: Config, start: pd.Timestamp, end: pd.Timesta
     m = pd.concat(parts)
     m = m[~m.index.duplicated()].sort_index()
     return m[["open", "high", "low", "close", "volume"]]
+
+
+@dataclass
+class Signal:
+    symbol: str
+    bar_time: pd.Timestamp          # open time of the last closed bar
+    decision_time: pd.Timestamp     # when that bar closed
+    decision: str                   # LONG / SHORT / NO TRADE
+    entry: float                    # last close (estimate of the next minute's open)
+    tp: float | None
+    sl: float | None
+    confidence: float | None        # calibrated P(WIN) of the chosen side
+    p_long_win: float
+    p_short_win: float
+    ev: float
+    atr: float
+    model: str
+
+
+def make_signal(cfg: Config, symbol: str, hourly: dict[str, pd.DataFrame], bundle: dict) -> Signal:
+    """Signal for the last bar of ``hourly[symbol]`` (other entries give context features)."""
+    feats = build_features(hourly, cfg)[symbol]
+    row = feats.iloc[[-1]]
+    missing = [c for c in bundle["features"] if pd.isna(row[c].iloc[0])]
+    if missing:
+        raise ValueError(f"{symbol}: features not ready for the last bar ({missing[:5]}...); need more history")
+    h = hourly[symbol]
+    atr = float(wilder_atr(h, cfg.labels.atr_n).iloc[-1])
+    close = float(h["close"].iloc[-1])
+    d = bundle_decide(bundle, row, np.array([atr / close]), cfg).iloc[0]
+    side = int(d["decision"])
+    lc = cfg.labels
+    tp = sl = conf = None
+    if side in (LONG, SHORT):
+        tp, sl, conf = close + side * lc.tp_atr * atr, close - side * lc.sl_atr * atr, float(d["confidence"])
+    t = h.index[-1]
+    return Signal(symbol, t, t + pd.Timedelta(hours=1), NAMES[side], close, tp, sl, conf,
+                  float(d["long_c_win"]), float(d["short_c_win"]), float(d["ev"]), atr, bundle["kind"])
+
+
+def format_signal(s: Signal) -> str:
+    head = f"{s.symbol}  bar {s.bar_time:%Y-%m-%d %H:%M} UTC (closed {s.decision_time:%H:%M})  [{s.model}]"
+    if s.decision == "NO TRADE":
+        body = (f"  NO TRADE   P(long WIN) {s.p_long_win:.1%}   P(short WIN) {s.p_short_win:.1%}   "
+                f"last close {s.entry:,.2f}")
+    else:
+        body = (f"  {s.decision:<9}  entry ~{s.entry:,.2f}   TP {s.tp:,.2f}   SL {s.sl:,.2f}   "
+                f"confidence {s.confidence:.1%}   EV {s.ev:+.3%}")
+    return head + "\n" + body
