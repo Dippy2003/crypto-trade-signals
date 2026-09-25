@@ -70,7 +70,7 @@ def predict_proba(model, X: np.ndarray) -> np.ndarray:
     out = np.zeros((len(X), len(CLASSES)))
     for j, c in enumerate(model.classes_):
         out[:, CLASSES.index(int(c))] = p[:, j]
-    return out
+    return out / out.sum(axis=1, keepdims=True)          # float32 models do not sum to exactly 1
 
 
 def fit_logreg(X_fit, y_fit, X_val, y_val, cfg: Config):
