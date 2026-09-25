@@ -15,9 +15,9 @@ import argparse
 import numpy as np
 import pandas as pd
 
-from src.config import Config, load_config, resolve_path
+from src.config import Config, ensure_dir, load_config, resolve_path
 from src.data_loader import load_hourly
-from src.labels import wilder_atr
+from src.labels import load_labels, wilder_atr
 
 TIME_FEATURES = ["hour_sin", "hour_cos", "dow_sin", "dow_cos"]
 
@@ -97,6 +97,18 @@ def build_features(hourly: dict[str, pd.DataFrame], cfg: Config) -> dict[str, pd
             f = add_context(f, base[ctx], ctx)
         out[sym] = f
     return out
+
+
+def label_correlations(feats: pd.DataFrame, labels: pd.DataFrame) -> pd.DataFrame:
+    """Pearson correlation of every feature with each side's label and realized return."""
+    df = feats.join(labels, how="inner")
+    targets = [f"{s}_{k}" for s in ("long", "short") for k in ("label", "ret")]
+    return pd.DataFrame({t: df[feats.columns].corrwith(df[t]) for t in targets})
+
+
+def leakage_flags(corr: pd.DataFrame, max_abs_corr: float) -> list[str]:
+    """Features whose |corr| with any target exceeds the limit (to be investigated, not trusted)."""
+    return sorted(corr.index[(corr.abs() > max_abs_corr).any(axis=1)])
 
 
 def load_features(cfg: Config, symbol: str) -> pd.DataFrame:
