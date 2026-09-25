@@ -87,3 +87,17 @@ def test_atr_is_one_for_hand_built_bars():
     lab, bar = hand_case()
     assert list(lab.index) == [bar]
     assert lab.loc[bar, "atr"] == pytest.approx(1.0)
+
+
+def test_take_profit_hit_first():
+    lab, bar = hand_case([(10, "high", 102.5), (50, "low", 98.5)])
+    r = lab.loc[bar]
+    assert r["long_label"] == lb.WIN and r["long_minutes"] == 11
+    assert r["long_ret"] == pytest.approx(0.02) and r["long_exit"] == pytest.approx(102)
+
+
+def test_stop_loss_hit_first():
+    lab, bar = hand_case([(5, "low", 98.9), (20, "high", 103.0)])
+    r = lab.loc[bar]
+    assert r["long_label"] == lb.LOSS and r["long_minutes"] == 6
+    assert r["long_ret"] == pytest.approx(-0.01) and r["long_exit"] == pytest.approx(99)
