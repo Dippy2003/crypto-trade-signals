@@ -84,3 +84,24 @@ def test_checksum_mismatch_is_rejected(cfg):
     s = FakeSession(serve(cfg, rf, b"payload"), bad={rf.url})
     assert dl.Downloader(cfg, s).fetch(rf) == dl.FAILED
     assert not (dl.resolve_path(cfg, "raw") / rf.name).exists()
+
+
+def test_missing_file_and_daily_fallback(cfg):
+    # 2024-02 monthly is not published yet -> daily files 2024-02-01..03 are used instead
+    files = serve(cfg, dl.monthly_file(cfg, "BTCUSDT", 2024, 1), b"jan")
+    for rf in dl.daily_files(cfg, "BTCUSDT", 2024, 2, date(2024, 2, 3)):
+        files |= serve(cfg, rf, rf.name.encode())
+    summary = dl.run(cfg, session=FakeSession(files), today=date(2024, 2, 4))
+    assert summary[dl.DOWNLOADED] == 4
+    assert (dl.resolve_path(cfg, "raw") / "BTCUSDT-1m-2024-02-03.zip").exists()
+
+
+def test_daily_files_for_current_month(cfg):
+    cfg.download.end = None
+    files = {}
+    for m in (1, 2):
+        files |= serve(cfg, dl.monthly_file(cfg, "BTCUSDT", 2024, m), b"m")
+    for rf in dl.daily_files(cfg, "BTCUSDT", 2024, 3, date(2024, 3, 4)):
+        files |= serve(cfg, rf, b"d")
+    summary = dl.run(cfg, session=FakeSession(files), today=date(2024, 3, 5))
+    assert summary[dl.DOWNLOADED] == 2 + 4
