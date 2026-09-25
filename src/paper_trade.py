@@ -129,6 +129,17 @@ def run_once(cfg: Config, kind: str | None = None, session=None, now: pd.Timesta
     return log
 
 
+def loop(cfg: Config, kind: str | None = None) -> None:
+    while True:
+        try:
+            run_once(cfg, kind)
+        except Exception as e:                        # keep running through network hiccups
+            print(f"paper trade cycle failed: {e}")
+        now = pd.Timestamp.now(tz="UTC")
+        nxt = now.floor("h") + pd.Timedelta(hours=1, minutes=cfg.paper.poll_minute)
+        time.sleep(max(5.0, (nxt - now).total_seconds()))
+
+
 def _stats(trades: pd.DataFrame, ret_col: str, t_col: str) -> dict:
     if trades.empty:
         return {"trades": 0, "win_rate": np.nan, "mean_ret": np.nan, "total_ret": np.nan,
@@ -170,3 +181,24 @@ def summary(cfg: Config, kind: str | None = None) -> str:
     path = ensure_dir(resolve_path(cfg, "reports")) / "paper_summary.md"
     path.write_text(md, encoding="utf-8")
     return md
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument("--once", action="store_true")
+    g.add_argument("--loop", action="store_true")
+    g.add_argument("--summary", action="store_true")
+    p.add_argument("--model")
+    a = p.parse_args()
+    cfg = load_config()
+    if a.summary:
+        print(summary(cfg, a.model))
+    elif a.loop:
+        loop(cfg, a.model)
+    else:
+        run_once(cfg, a.model)
+
+
+if __name__ == "__main__":
+    main()
