@@ -1,0 +1,16 @@
+# Python 3.11
+numpy==2.4.6
+pandas==2.3.3
+pyarrow==25.0.1
+pyyaml==6.0.3
+requests==2.34.2
+scikit-learn==1.9.1
+xgboost==3.2.0
+joblib==1.6.0
+matplotlib==3.11.2
+mplfinance==0.12.10b0
+pillow==12.3.0
+torch==2.14.0
+torchvision==0.29.0
+streamlit==1.64.0
+pytest==9.1.1
