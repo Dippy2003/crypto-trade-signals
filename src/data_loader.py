@@ -53,3 +53,12 @@ def load_minutes(files: list[Path], us_threshold: float) -> pd.DataFrame:
          .sort_values("time")
          .set_index("time"))
     return m[PRICE_COLS].astype("float64")
+
+
+def to_hourly(m: pd.DataFrame, min_minutes: int) -> tuple[pd.DataFrame, int]:
+    """Aggregate to 1h bars, dropping hours with fewer than ``min_minutes`` 1m bars."""
+    h = m.resample("1h", label="left", closed="left").agg(
+        {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
+    h["n_min"] = m["close"].resample("1h", label="left", closed="left").count()
+    keep = h["n_min"] >= min_minutes
+    return h[keep], int((~keep).sum())
