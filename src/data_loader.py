@@ -95,3 +95,51 @@ def quality_report(stats: dict[str, dict], ignored: list[Path], min_minutes: int
         lines += ["", "Ignored files with non-standard names (e.g. browser duplicates):", ""]
         lines += [f"- `{p.name}`" for p in ignored]
     return "\n".join(lines) + "\n"
+
+
+def build(cfg: Config, symbols: list[str] | None = None) -> dict[str, dict]:
+    """Build parquet files for every symbol found in the raw folder and write the quality report."""
+    raw = resolve_path(cfg, "raw")
+    out = ensure_dir(resolve_path(cfg, "processed"))
+    by_sym, ignored = list_zips(raw)
+    if symbols:
+        by_sym = {s: f for s, f in by_sym.items() if s in symbols}
+    if not by_sym:
+        raise SystemExit(f"No Binance 1m zip files found in {raw}")
+    if ignored:
+        print(f"Ignoring {len(ignored)} files with non-standard names: {', '.join(p.name for p in ignored)}")
+
+    stats = {}
+    for sym, files in by_sym.items():
+        print(f"\n{sym}: reading {len(files)} files...")
+        m = load_minutes(files, cfg.data.us_threshold)
+        h, dropped = to_hourly(m, cfg.data.min_minutes_per_hour)
+        s = stats[sym] = quality_stats(m, h, dropped)
+        print(f"  1m bars : {s['rows_1m']:,}  ({s['first']} -> {s['last']})")
+        print(f"  missing : {s['missing_1m']:,} minutes ({s['missing_pct']:.2f}%), largest gap {s['largest_gap_min']} min")
+        print(f"  1h bars : {s['rows_1h']:,}  (dropped {dropped} incomplete hours)")
+        m.to_parquet(out / f"{sym}_1m.parquet")
+        h.to_parquet(out / f"{sym}_1h.parquet")
+
+    report = ensure_dir(resolve_path(cfg, "reports")) / "data_quality.md"
+    report.write_text(quality_report(stats, ignored, cfg.data.min_minutes_per_hour), encoding="utf-8")
+    print(f"\nSaved parquet files to {out} and report to {report}")
+    return stats
+
+
+def load_hourly(cfg: Config, symbol: str) -> pd.DataFrame:
+    return pd.read_parquet(resolve_path(cfg, "processed") / f"{symbol}_1h.parquet")
+
+
+def load_minute(cfg: Config, symbol: str) -> pd.DataFrame:
+    return pd.read_parquet(resolve_path(cfg, "processed") / f"{symbol}_1m.parquet")
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbols", nargs="+")
+    build(load_config(), p.parse_args().symbols)
+
+
+if __name__ == "__main__":
+    main()
