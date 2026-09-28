@@ -34,3 +34,15 @@ def test_header_row_is_dropped(tmp_path):
     m = random_walk_minutes("2024-03-01", 60, seed=3)
     f = write_zip(tmp_path / "BTCUSDT-1m-2024-03.zip", to_binance(m), header=True)
     assert len(dlr.load_minutes([f], US)) == 60
+
+
+def test_missing_minutes_and_largest_gap(tmp_path):
+    m = random_walk_minutes("2024-03-01", 600, seed=4)
+    gap = m.index[100:130]                  # 30-minute hole
+    small = m.index[[300, 450]]             # two single missing minutes
+    m = m.drop(gap.union(small))
+    h, dropped = dlr.to_hourly(m, 50)
+    s = dlr.quality_stats(m, h, dropped)
+    assert s["missing_1m"] == 32
+    assert s["largest_gap_min"] == 30
+    assert s["largest_gap_start"] == gap[0]
