@@ -58,3 +58,60 @@ def barrier_outcome(hi: np.ndarray, lo: np.ndarray, last_close: float, entry: fl
     if t_sl <= t_tp:
         return LOSS, side * (sl / entry - 1), int(t_sl) + 1
     return WIN, side * (tp / entry - 1), int(t_tp) + 1
+
+
+def _first_true(mask: np.ndarray, none: int) -> np.ndarray:
+    """Index of the first True per row, or ``none`` when a row has no True."""
+    return np.where(mask.any(axis=1), mask.argmax(axis=1), none)
+
+
+def _resolve(t_tp, t_sl, entry, tp, sl, last_close, side, H):
+    no_hit = (t_tp == H) & (t_sl == H)
+    loss = ~no_hit & (t_sl <= t_tp)
+    label = np.where(no_hit, NO_TRADE, np.where(loss, LOSS, WIN))
+    exit_px = np.where(no_hit, last_close, np.where(loss, sl, tp))
+    ret = side * (exit_px / entry - 1)
+    minutes = np.where(no_hit, H, np.where(loss, t_sl + 1, t_tp + 1))
+    return label, ret, minutes, exit_px
+
+
+def label_symbol(h: pd.DataFrame, m: pd.DataFrame, tp_atr: float, sl_atr: float,
+                 horizon_h: int, atr_n: int, chunk_rows: int = 2048) -> pd.DataFrame:
+    """Vectorized triple-barrier labels for one symbol, indexed by hourly bar open time."""
+    H = horizon_h * 60
+    atr = wilder_atr(h, atr_n).to_numpy()
+    mt = m.index.values
+    mo, mh, ml, mc = (m[c].to_numpy() for c in ["open", "high", "low", "close"])
+    decision = (h.index + pd.Timedelta(hours=1)).values
+    start = np.searchsorted(mt, decision)
+
+    rows = np.flatnonzero(~np.isnan(atr) & (start + H <= len(mt)))
+    s = start[rows]
+    ok = (mt[s] == decision[rows]) & (mt[s + H - 1] - mt[s] == (H - 1) * ONE_MIN)
+    rows, s = rows[ok], s[ok]
+
+    entry, a = mo[s], atr[rows]
+    last_close = mc[s + H - 1]
+    tp_l, sl_l = entry + tp_atr * a, entry - sl_atr * a
+    tp_s, sl_s = entry - tp_atr * a, entry + sl_atr * a
+
+    t = np.empty((4, len(rows)), dtype=np.int64)
+    offsets = np.arange(H)
+    for c0 in range(0, len(rows), chunk_rows):
+        c = slice(c0, c0 + chunk_rows)
+        win = s[c, None] + offsets
+        hi, lo = mh[win], ml[win]
+        t[0, c] = _first_true(hi >= tp_l[c, None], H)
+        t[1, c] = _first_true(lo <= sl_l[c, None], H)
+        t[2, c] = _first_true(lo <= tp_s[c, None], H)
+        t[3, c] = _first_true(hi >= sl_s[c, None], H)
+
+    L = _resolve(t[0], t[1], entry, tp_l, sl_l, last_close, +1, H)
+    S = _resolve(t[2], t[3], entry, tp_s, sl_s, last_close, -1, H)
+    lab = pd.DataFrame({
+        "entry": entry, "atr": a,
+        "long_label": L[0], "long_ret": L[1], "long_minutes": L[2], "long_exit": L[3],
+        "short_label": S[0], "short_ret": S[1], "short_minutes": S[2], "short_exit": S[3],
+    }, index=h.index[rows])
+    lab.index.name = "time"
+    return lab
