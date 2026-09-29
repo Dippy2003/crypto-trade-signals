@@ -41,3 +41,11 @@ def test_vectorized_matches_reference_loop():
     for c in ref.columns:
         np.testing.assert_array_equal(new[c].to_numpy(), ref[c].to_numpy(), err_msg=c)
     assert set(new["long_label"]) == {lb.LOSS, lb.NO_TRADE, lb.WIN}
+
+
+def test_exit_price_consistent_with_return():
+    m = random_walk_minutes("2024-01-01", 60 * 24 * 3, seed=12, vol=0.002)
+    h, _ = to_hourly(m, 50)
+    lab = lb.label_symbol(h, m, 2.0, 1.0, 12, 14)
+    np.testing.assert_allclose(lab["long_exit"] / lab["entry"] - 1, lab["long_ret"])
+    np.testing.assert_allclose(1 - lab["short_exit"] / lab["entry"], lab["short_ret"])
