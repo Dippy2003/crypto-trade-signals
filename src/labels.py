@@ -115,3 +115,30 @@ def label_symbol(h: pd.DataFrame, m: pd.DataFrame, tp_atr: float, sl_atr: float,
     }, index=h.index[rows])
     lab.index.name = "time"
     return lab
+
+
+def label_distribution(labels_by_symbol: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """Share of LOSS / NO TRADE / WIN per symbol, year and side (percent)."""
+    out = []
+    for sym, lab in labels_by_symbol.items():
+        for side in ["long", "short"]:
+            g = lab.groupby(lab.index.year)[f"{side}_label"]
+            pct = g.value_counts(normalize=True).unstack(fill_value=0).mul(100)
+            pct = pct.reindex(columns=list(LABEL_NAMES), fill_value=0).rename(columns=LABEL_NAMES)
+            pct["rows"] = g.size()
+            pct.insert(0, "side", side)
+            pct.insert(0, "symbol", sym)
+            out.append(pct.rename_axis("year").reset_index())
+    return pd.concat(out, ignore_index=True)
+
+
+def distribution_markdown(dist: pd.DataFrame, cfg: Config) -> str:
+    lc = cfg.labels
+    lines = ["# Label distribution", "",
+             f"TP = {lc.tp_atr} x ATR({lc.atr_n}), SL = {lc.sl_atr} x ATR, horizon {lc.horizon_h}h, "
+             "both barriers in the same minute = LOSS.", "",
+             "| Symbol | Side | Year | Rows | LOSS % | NO TRADE % | WIN % |", "|---|---|---|---:|---:|---:|---:|"]
+    for r in dist.to_dict("records"):
+        lines.append(f"| {r['symbol']} | {r['side']} | {r['year']} | {r['rows']:,} | {r['LOSS']:.1f} | "
+                     f"{r['NO TRADE']:.1f} | {r['WIN']:.1f} |")
+    return "\n".join(lines) + "\n"

@@ -49,3 +49,11 @@ def test_exit_price_consistent_with_return():
     lab = lb.label_symbol(h, m, 2.0, 1.0, 12, 14)
     np.testing.assert_allclose(lab["long_exit"] / lab["entry"] - 1, lab["long_ret"])
     np.testing.assert_allclose(1 - lab["short_exit"] / lab["entry"], lab["short_ret"])
+
+
+def test_label_distribution_sums_to_100():
+    m = random_walk_minutes("2024-12-28", 60 * 24 * 8, seed=13, vol=0.002)
+    h, _ = to_hourly(m, 50)
+    dist = lb.label_distribution({"BTCUSDT": lb.label_symbol(h, m, 2.0, 1.0, 12, 14)})
+    assert set(dist["year"]) == {2024, 2025}
+    np.testing.assert_allclose(dist[["LOSS", "NO TRADE", "WIN"]].sum(axis=1), 100)
