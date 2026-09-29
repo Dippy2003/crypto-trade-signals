@@ -142,3 +142,38 @@ def distribution_markdown(dist: pd.DataFrame, cfg: Config) -> str:
         lines.append(f"| {r['symbol']} | {r['side']} | {r['year']} | {r['rows']:,} | {r['LOSS']:.1f} | "
                      f"{r['NO TRADE']:.1f} | {r['WIN']:.1f} |")
     return "\n".join(lines) + "\n"
+
+
+def load_labels(cfg: Config, symbol: str) -> pd.DataFrame:
+    return pd.read_parquet(resolve_path(cfg, "processed") / f"{symbol}_labels.parquet")
+
+
+def build(cfg: Config, symbols: list[str] | None = None) -> dict[str, pd.DataFrame]:
+    proc = resolve_path(cfg, "processed")
+    symbols = symbols or [p.name.split("_")[0] for p in sorted(proc.glob("*_1h.parquet"))]
+    lc = cfg.labels
+    out = {}
+    for sym in symbols:
+        h, m = load_hourly(cfg, sym), load_minute(cfg, sym)
+        print(f"{sym}: labelling {len(h):,} hourly bars...")
+        lab = label_symbol(h, m, lc.tp_atr, lc.sl_atr, lc.horizon_h, lc.atr_n, lc.chunk_rows)
+        lab.to_parquet(proc / f"{sym}_labels.parquet")
+        print(f"  labelled {len(lab):,} rows (skipped {len(h) - len(lab):,})")
+        for side in ["long", "short"]:
+            dist = lab[f"{side}_label"].map(LABEL_NAMES).value_counts(normalize=True).mul(100).round(1)
+            print(f"  {side:5s}: " + "  ".join(f"{k} {v}%" for k, v in dist.items()))
+        out[sym] = lab
+    report = ensure_dir(resolve_path(cfg, "reports")) / "label_distribution.md"
+    report.write_text(distribution_markdown(label_distribution(out), cfg), encoding="utf-8")
+    print(f"Saved labels to {proc} and summary to {report}")
+    return out
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbols", nargs="+")
+    build(load_config(), p.parse_args().symbols)
+
+
+if __name__ == "__main__":
+    main()
