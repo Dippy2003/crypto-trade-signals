@@ -75,3 +75,25 @@ def compute_features(h: pd.DataFrame, fc: Config) -> pd.DataFrame:
 
     out = pd.DataFrame({k: np.asarray(s, dtype="float64") for k, s in f.items()}, index=grid)
     return out.reindex(h.index).replace([np.inf, -np.inf], np.nan)
+
+
+def context_prefix(symbol: str) -> str:
+    return symbol.removesuffix("USDT").lower() + "_"
+
+
+def add_context(feats: pd.DataFrame, ctx: pd.DataFrame, ctx_symbol: str) -> pd.DataFrame:
+    """Join the context symbol's features (without time features) onto ``feats`` by bar time."""
+    cols = [c for c in ctx.columns if c not in TIME_FEATURES]
+    return feats.join(ctx[cols].add_prefix(context_prefix(ctx_symbol)), how="left")
+
+
+def build_features(hourly: dict[str, pd.DataFrame], cfg: Config) -> dict[str, pd.DataFrame]:
+    """Features for every symbol in ``hourly``, with context columns for non-context symbols."""
+    base = {s: compute_features(h, cfg.features) for s, h in hourly.items()}
+    ctx = cfg.context_symbol
+    out = {}
+    for sym, f in base.items():
+        if sym != ctx and ctx in base:
+            f = add_context(f, base[ctx], ctx)
+        out[sym] = f
+    return out
