@@ -39,3 +39,10 @@ def test_scale_free(cfg, hourly):
     a = ft.compute_features(h, cfg.features)
     b = ft.compute_features(scaled, cfg.features)
     pd.testing.assert_frame_equal(a, b, rtol=1e-9, atol=1e-12)
+
+
+def test_time_features(cfg, hourly):
+    f = ft.compute_features(hourly["BTCUSDT"], cfg.features)
+    t = pd.Timestamp("2024-01-03 06:00", tz="UTC")        # a Wednesday, 06:00
+    assert f.loc[t, "hour_sin"] == pytest.approx(1.0)
+    assert f.loc[t, "dow_sin"] == pytest.approx(np.sin(2 * np.pi * 2 / 7))
