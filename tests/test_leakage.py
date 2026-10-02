@@ -81,3 +81,15 @@ def test_no_feature_correlates_suspiciously_with_labels(cfg, data):
         assert corr.notna().all().all()
         flags = ft.leakage_flags(corr, cfg.features.leakage_max_abs_corr)
         assert flags == [], f"{sym}: investigate {flags}\n{corr.loc[flags]}"
+
+
+def test_correlation_check_catches_future_return(cfg, data):
+    """Positive control: a feature built from the realized outcome must be flagged."""
+    hourly, minutes = data
+    lc = cfg.labels
+    h, m = hourly["BTCUSDT"], minutes["BTCUSDT"]
+    lab = label_symbol(h, m, lc.tp_atr, lc.sl_atr, lc.horizon_h, lc.atr_n)
+    f = ft.compute_features(h, cfg.features)
+    f["future_ret"] = h["close"].shift(-12) / h["close"] - 1
+    flags = ft.leakage_flags(ft.label_correlations(f, lab), cfg.features.leakage_max_abs_corr)
+    assert flags == ["future_ret"]
