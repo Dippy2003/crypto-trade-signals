@@ -55,3 +55,17 @@ def test_features_identical_after_truncation(cfg, data):
     times = random_times(hourly["ETHUSDT"], 25, seed=1) + after_gap
     bad = truncation_mismatches(lambda hh: ft.build_features(hh, cfg), hourly, times)
     assert bad == []
+
+
+def test_truncation_check_catches_a_leaky_feature(cfg, data):
+    """Positive control: a centered rolling mean looks ahead and must be caught."""
+    hourly, _ = data
+
+    def leaky(hh):
+        out = ft.build_features(hh, cfg)
+        for sym, f in out.items():
+            f["leaky"] = hh[sym]["close"].rolling(5, center=True).mean() / hh[sym]["close"]
+        return out
+
+    bad = truncation_mismatches(leaky, hourly, random_times(hourly["BTCUSDT"], 5, seed=2))
+    assert bad and all("leaky" in b for b in bad)
