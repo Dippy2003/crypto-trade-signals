@@ -69,3 +69,15 @@ def test_truncation_check_catches_a_leaky_feature(cfg, data):
 
     bad = truncation_mismatches(leaky, hourly, random_times(hourly["BTCUSDT"], 5, seed=2))
     assert bad and all("leaky" in b for b in bad)
+
+
+def test_no_feature_correlates_suspiciously_with_labels(cfg, data):
+    hourly, minutes = data
+    feats = ft.build_features(hourly, cfg)
+    lc = cfg.labels
+    for sym in hourly:
+        lab = label_symbol(hourly[sym], minutes[sym], lc.tp_atr, lc.sl_atr, lc.horizon_h, lc.atr_n)
+        corr = ft.label_correlations(feats[sym], lab)
+        assert corr.notna().all().all()
+        flags = ft.leakage_flags(corr, cfg.features.leakage_max_abs_corr)
+        assert flags == [], f"{sym}: investigate {flags}\n{corr.loc[flags]}"
