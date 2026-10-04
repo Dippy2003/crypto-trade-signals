@@ -52,7 +52,7 @@ splits:
   holdout_start: "2026-01-01"    # final holdout; only `evaluate --holdout` may touch it
   embargo_h: 24
   val_fraction: 0.15             # tail of each training fold used for early stopping
-  min_train_rows: 2000
+  min_train_rows: 4000           # folds with fewer training rows are skipped
 
 model:
   seed: 42
