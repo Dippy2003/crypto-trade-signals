@@ -13,6 +13,12 @@ def cfg():
                                              "val_fraction": 0.15}})
 
 
+@pytest.fixture
+def times():
+    t = pd.date_range("2023-01-01", "2025-06-30 23:00", freq="1h", tz="UTC", name="time")
+    return t.delete(np.arange(5000, 5010))               # a small hole, as in real data
+
+
 def test_folds_are_consecutive_and_stop_at_holdout(cfg):
     folds = sp.make_folds(cfg)
     assert [f.k for f in folds] == [1, 2, 3, 4]
@@ -20,3 +26,22 @@ def test_folds_are_consecutive_and_stop_at_holdout(cfg):
     assert folds[-1].test_end == pd.Timestamp("2025-01-01", tz="UTC")
     for a, b in zip(folds[:-1], folds[1:]):
         assert a.test_end == b.test_start
+
+
+def test_train_is_purged_and_embargoed(cfg, times):
+    emb = pd.Timedelta(hours=24)
+    for f in sp.make_folds(cfg):
+        tr, te = sp.fold_masks(times, f, cfg)
+        assert not (tr & te).any()
+        train_t, test_t = times[tr], times[te]
+        assert train_t.max() < test_t.min()
+        # every training label window closes at least one embargo before the test starts
+        assert sp.label_end(train_t, cfg).max() <= f.test_start - emb
+        # and the purge is tight: the next hourly bar would violate it
+        assert sp.label_end(train_t, cfg).max() + pd.Timedelta(hours=1) > f.test_start - emb
+        assert test_t.min() >= f.test_start and test_t.max() < f.test_end
+
+
+def test_expanding_window(cfg, times):
+    sizes = [sp.fold_masks(times, f, cfg)[0].sum() for f in sp.make_folds(cfg)]
+    assert sizes == sorted(sizes) and sizes[0] > 0
