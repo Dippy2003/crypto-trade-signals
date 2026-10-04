@@ -69,3 +69,9 @@ def test_validation_tail_is_purged(cfg, times):
     val_start = times[val].min()
     assert sp.label_end(times[fit], cfg).max() <= val_start - pd.Timedelta(hours=24)
     assert times[fit].max() < val_start
+
+
+def test_fold_table(cfg, times):
+    tab = sp.fold_table(times, cfg)
+    assert list(tab["fold"]) == [1, 2, 3, 4] and tab["usable"].all()
+    assert tab["test_rows"].sum() == sum(sp.fold_masks(times, f, cfg)[1].sum() for f in sp.make_folds(cfg))

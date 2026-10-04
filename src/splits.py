@@ -89,3 +89,33 @@ def fit_val_masks(times: pd.DatetimeIndex, train: np.ndarray, cfg: Config) -> tu
 def assert_no_holdout(times: pd.DatetimeIndex, cfg: Config) -> None:
     if not development_mask(times, cfg).all():
         raise RuntimeError("Holdout data reached development code; only `evaluate --holdout` may use it.")
+
+
+def fold_table(times: pd.DatetimeIndex, cfg: Config) -> pd.DataFrame:
+    rows = []
+    for f in make_folds(cfg):
+        tr, te = fold_masks(times, f, cfg)
+        rows.append({"fold": f.k, "test_start": f.test_start.date(), "test_end": f.test_end.date(),
+                     "train_rows": int(tr.sum()), "test_rows": int(te.sum()),
+                     "usable": bool(tr.sum() >= cfg.splits.min_train_rows and te.sum() > 0)})
+    return pd.DataFrame(rows)
+
+
+def main() -> None:
+    from src.labels import load_labels
+
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbols", nargs="+")
+    cfg = load_config()
+    for sym in p.parse_args().symbols or cfg.symbols:
+        try:
+            times = load_labels(cfg, sym).index
+        except FileNotFoundError:
+            print(f"{sym}: no labels yet")
+            continue
+        print(f"\n{sym}  (holdout from {cfg.splits.holdout_start}, embargo {cfg.splits.embargo_h}h)")
+        print(fold_table(times, cfg).to_string(index=False))
+
+
+if __name__ == "__main__":
+    main()
