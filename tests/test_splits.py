@@ -59,3 +59,13 @@ def test_nothing_in_development_touches_the_holdout(cfg, times):
     with pytest.raises(RuntimeError):
         sp.assert_no_holdout(times, cfg)
     sp.assert_no_holdout(times[dev], cfg)
+
+
+def test_validation_tail_is_purged(cfg, times):
+    tr, _ = sp.fold_masks(times, sp.make_folds(cfg)[2], cfg)
+    fit, val = sp.fit_val_masks(times, tr, cfg)
+    assert not (fit & val).any()
+    assert val.sum() == round(tr.sum() * 0.15)
+    val_start = times[val].min()
+    assert sp.label_end(times[fit], cfg).max() <= val_start - pd.Timedelta(hours=24)
+    assert times[fit].max() < val_start
