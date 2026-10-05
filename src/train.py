@@ -88,3 +88,76 @@ def fold_metrics(y: np.ndarray, proba: np.ndarray, prior: np.ndarray) -> dict:
         "confusion": confusion_matrix(y, pred, labels=CLASSES).tolist(),
         "n_test": len(y),
     }
+
+
+def walk_forward(cfg: Config, kind: str, symbols: list[str] | None = None,
+                 on_model: Callable | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Train ``kind`` on every usable fold. Returns (oof predictions, per-fold metrics).
+
+    ``on_model(kind, symbol, side, fold, model, dataset, masks)`` is called after each fit.
+    """
+    fit_fn = TRAINERS[kind]
+    oof_parts, metrics = [], []
+    for sym in symbols or cfg.symbols:
+        ds = development_data(assemble_dataset(cfg, sym), cfg)
+        X, t = ds.df[ds.features].to_numpy(), ds.df.index
+        for fold in make_folds(cfg):
+            train, test = fold_masks(t, fold, cfg)
+            if train.sum() < cfg.splits.min_train_rows or not test.any():
+                continue
+            fit, val = fit_val_masks(t, train, cfg)
+            part = pd.DataFrame({"symbol": sym, "fold": fold.k}, index=t[test])
+            for side in SIDES:
+                y = ds.df[f"{side}_label"].to_numpy()
+                model = fit_fn(X[fit], y[fit], X[val], y[val], cfg)
+                proba = predict_proba(model, X[test])
+                for j, name in enumerate(PROBA):
+                    part[f"{side}_{name}"] = proba[:, j]
+                part[f"{side}_label"] = y[test]
+                prior = np.bincount(y[train], minlength=3) / train.sum()
+                metrics.append({"model": kind, "symbol": sym, "side": side, "fold": fold.k,
+                                "test_start": fold.test_start.date(), "n_train": int(train.sum()),
+                                **fold_metrics(y[test], proba, prior)})
+                if on_model:
+                    on_model(kind, sym, side, fold, model, ds, (fit, val, test))
+            oof_parts.append(part)
+            print(f"{kind} {sym} fold {fold.k}: train {train.sum():,}  test {test.sum():,}")
+    if not oof_parts:
+        raise SystemExit("No usable folds: check data range and splits.first_test_start")
+    oof = pd.concat(oof_parts).rename_axis("time").reset_index()
+    return oof, pd.DataFrame(metrics)
+
+
+def metrics_markdown(m: pd.DataFrame, kind: str) -> str:
+    lines = [f"# Training report: {kind}", "",
+             "Out-of-fold metrics per test period. `prior` is the log-loss of always predicting the "
+             "training class frequencies; a useful model should be below it.", ""]
+    for (sym, side), g in m.groupby(["symbol", "side"], sort=False):
+        lines += [f"## {sym} {side}", "",
+                  "| Fold | Test start | Train | Test | Log-loss | Prior | Prec WIN | Rec WIN | Prec LOSS | Rec LOSS | Confusion [L,N,W] |",
+                  "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
+        for r in g.to_dict("records"):
+            lines.append(f"| {r['fold']} | {r['test_start']} | {r['n_train']:,} | {r['n_test']:,} | "
+                         f"{r['log_loss']:.4f} | {r['prior_log_loss']:.4f} | {r['precision_WIN']:.3f} | "
+                         f"{r['recall_WIN']:.3f} | {r['precision_LOSS']:.3f} | {r['recall_LOSS']:.3f} | "
+                         f"{r['confusion']} |")
+        lines += ["", f"Mean log-loss {g['log_loss'].mean():.4f} vs prior {g['prior_log_loss'].mean():.4f}", ""]
+    return "\n".join(lines)
+
+
+def oof_path(cfg: Config, kind: str):
+    return resolve_path(cfg, "processed") / f"oof_{kind}.parquet"
+
+
+def load_oof(cfg: Config, kind: str) -> pd.DataFrame:
+    return pd.read_parquet(oof_path(cfg, kind))
+
+
+def run(cfg: Config, kind: str, symbols: list[str] | None = None) -> pd.DataFrame:
+    oof, m = walk_forward(cfg, kind, symbols)
+    ensure_dir(oof_path(cfg, kind).parent)
+    oof.to_parquet(oof_path(cfg, kind))
+    report = ensure_dir(resolve_path(cfg, "reports")) / f"train_{kind}.md"
+    report.write_text(metrics_markdown(m, kind), encoding="utf-8")
+    print(f"Saved {oof_path(cfg, kind)} and {report}")
+    return oof
