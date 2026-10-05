@@ -52,3 +52,17 @@ def development_data(ds: Dataset, cfg: Config) -> Dataset:
     df = ds.df[development_mask(ds.df.index, cfg)]
     assert_no_holdout(df.index, cfg)
     return Dataset(df, ds.features, ds.symbol)
+
+
+def fold_metrics(y: np.ndarray, proba: np.ndarray, prior: np.ndarray) -> dict:
+    """Log-loss (model and class-prior baseline), per-class precision/recall, confusion matrix."""
+    pred = np.array(CLASSES)[proba.argmax(axis=1)]
+    prec, rec, _, _ = precision_recall_fscore_support(y, pred, labels=CLASSES, zero_division=0)
+    return {
+        "log_loss": log_loss(y, np.clip(proba, 1e-12, 1), labels=CLASSES),
+        "prior_log_loss": log_loss(y, np.tile(prior, (len(y), 1)), labels=CLASSES),
+        **{f"precision_{LABEL_NAMES[c]}": p for c, p in zip(CLASSES, prec)},
+        **{f"recall_{LABEL_NAMES[c]}": r for c, r in zip(CLASSES, rec)},
+        "confusion": confusion_matrix(y, pred, labels=CLASSES).tolist(),
+        "n_test": len(y),
+    }
