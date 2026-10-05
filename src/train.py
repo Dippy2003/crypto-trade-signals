@@ -54,6 +54,28 @@ def development_data(ds: Dataset, cfg: Config) -> Dataset:
     return Dataset(df, ds.features, ds.symbol)
 
 
+def predict_proba(model, X: np.ndarray) -> np.ndarray:
+    """(n, 3) probabilities in CLASSES order, even if a class was absent in training."""
+    p = model.predict_proba(X)
+    out = np.zeros((len(X), len(CLASSES)))
+    for j, c in enumerate(model.classes_):
+        out[:, CLASSES.index(int(c))] = p[:, j]
+    return out
+
+
+def fit_logreg(X_fit, y_fit, X_val, y_val, cfg: Config):
+    """Standardized logistic regression with balanced class weights. Scaler sees training rows only."""
+    X = np.vstack([X_fit, X_val])
+    y = np.concatenate([y_fit, y_val])
+    lr = cfg.model.logreg
+    model = make_pipeline(StandardScaler(), LogisticRegression(
+        C=lr.C, max_iter=lr.max_iter, class_weight="balanced", random_state=cfg.model.seed))
+    return model.fit(X, y)
+
+
+TRAINERS: dict[str, Callable] = {"logreg": fit_logreg}
+
+
 def fold_metrics(y: np.ndarray, proba: np.ndarray, prior: np.ndarray) -> dict:
     """Log-loss (model and class-prior baseline), per-class precision/recall, confusion matrix."""
     pred = np.array(CLASSES)[proba.argmax(axis=1)]
