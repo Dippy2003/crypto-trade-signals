@@ -14,3 +14,9 @@ def test_assemble_dataset(project):
     assert {"close", "long_label", "short_ret", "entry", "atr"} <= set(btc.df.columns)
     assert "btc_rsi14" in eth.features and "btc_rsi14" not in btc.features
     assert not any(c in btc.features for c in ["close", "entry", "atr", "long_label", "long_ret"])
+
+
+def test_development_data_excludes_holdout(project):
+    ds = tr.development_data(tr.assemble_dataset(project, "BTCUSDT"), project)
+    assert development_mask(ds.df.index, project).all()
+    assert ds.df.index.max() < pd.Timestamp(project.splits.holdout_start, tz="UTC")

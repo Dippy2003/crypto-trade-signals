@@ -45,3 +45,10 @@ def assemble_dataset(cfg: Config, symbol: str) -> Dataset:
     df = feats.join(load_labels(cfg, symbol), how="inner").join(load_hourly(cfg, symbol)[["close"]])
     df = df.dropna(subset=list(feats.columns))
     return Dataset(df, list(feats.columns), symbol)
+
+
+def development_data(ds: Dataset, cfg: Config) -> Dataset:
+    """The same dataset without any row that touches the holdout."""
+    df = ds.df[development_mask(ds.df.index, cfg)]
+    assert_no_holdout(df.index, cfg)
+    return Dataset(df, ds.features, ds.symbol)
