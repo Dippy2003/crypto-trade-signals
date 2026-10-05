@@ -161,3 +161,15 @@ def run(cfg: Config, kind: str, symbols: list[str] | None = None) -> pd.DataFram
     report.write_text(metrics_markdown(m, kind), encoding="utf-8")
     print(f"Saved {oof_path(cfg, kind)} and {report}")
     return oof
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--model", default="logreg", choices=sorted(TRAINERS))
+    p.add_argument("--symbols", nargs="+")
+    a = p.parse_args()
+    run(load_config(), a.model, a.symbols)
+
+
+if __name__ == "__main__":
+    main()
