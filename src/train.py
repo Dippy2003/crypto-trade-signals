@@ -14,12 +14,15 @@ import argparse
 from dataclasses import dataclass
 from typing import Callable
 
+import joblib
+import matplotlib
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, log_loss, precision_recall_fscore_support
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from xgboost import XGBClassifier
 
 from src.config import Config, ensure_dir, load_config, resolve_path
 from src.data_loader import load_hourly
@@ -52,6 +55,13 @@ def development_data(ds: Dataset, cfg: Config) -> Dataset:
     df = ds.df[development_mask(ds.df.index, cfg)]
     assert_no_holdout(df.index, cfg)
     return Dataset(df, ds.features, ds.symbol)
+
+
+def class_weights(y: np.ndarray) -> np.ndarray:
+    """Balanced per-sample weights: n / (n_classes * count[class])."""
+    counts = np.bincount(y, minlength=len(CLASSES)).astype(float)
+    w = len(y) / (len(CLASSES) * np.maximum(counts, 1))
+    return w[y]
 
 
 def predict_proba(model, X: np.ndarray) -> np.ndarray:
