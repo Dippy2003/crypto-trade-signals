@@ -83,7 +83,21 @@ def fit_logreg(X_fit, y_fit, X_val, y_val, cfg: Config):
     return model.fit(X, y)
 
 
-TRAINERS: dict[str, Callable] = {"logreg": fit_logreg}
+def fit_xgb(X_fit, y_fit, X_val, y_val, cfg: Config):
+    """Gradient-boosted trees with balanced weights and early stopping on the purged validation tail."""
+    xc = cfg.model.xgb
+    model = XGBClassifier(
+        objective="multi:softprob", eval_metric="mlogloss", tree_method="hist",
+        n_estimators=xc.n_estimators, learning_rate=xc.learning_rate, max_depth=xc.max_depth,
+        min_child_weight=xc.min_child_weight, subsample=xc.subsample, colsample_bytree=xc.colsample_bytree,
+        reg_lambda=xc.reg_lambda, early_stopping_rounds=xc.early_stopping_rounds,
+        n_jobs=xc.n_jobs, random_state=cfg.model.seed)
+    model.fit(X_fit, y_fit, sample_weight=class_weights(y_fit),
+              eval_set=[(X_val, y_val)], sample_weight_eval_set=[class_weights(y_val)], verbose=False)
+    return model
+
+
+TRAINERS: dict[str, Callable] = {"logreg": fit_logreg, "xgb": fit_xgb}
 
 
 def fold_metrics(y: np.ndarray, proba: np.ndarray, prior: np.ndarray) -> dict:
