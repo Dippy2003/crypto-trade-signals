@@ -4,9 +4,11 @@ One model per symbol, side (long / short) and fold predicts P(LOSS), P(NO TRADE)
 Test-period predictions of every fold are out-of-fold (OOF) and are saved for calibration,
 the decision rule and the backtest.
 
-Output: data/processed/oof_{model}.parquet, reports/train_{model}.md
+Output: data/processed/oof_{model}.parquet, models/{model}_{SYM}_{side}_fold{k}.pkl,
+        reports/train_{model}.md, reports/figures/importance_{model}_{SYM}_{side}.png
 
     python -m src.train --model logreg
+    python -m src.train --model xgb
 """
 from __future__ import annotations
 
