@@ -60,3 +60,15 @@ def test_decide_rule(cfg):
     assert dec[4] == dc.FLAT                   # below threshold
     dec_small_atr, *_ = dc.decide(pl[:1], ps[:1], np.array([0.001]), 0.5, 0.5, cfg)
     assert dec_small_atr[0] == dc.FLAT         # EV after costs is negative when ATR is tiny
+
+
+def test_choose_threshold(cfg):
+    rng = np.random.default_rng(1)
+    p = rng.uniform(0.2, 0.8, 2000)
+    net = np.where(p > 0.6, 0.01, -0.01)       # only confident trades make money
+    thr, profit, n = dc.choose_threshold(p, np.ones_like(p), net, cfg)
+    assert 0.6 <= thr <= 0.62 and profit > 0 and n >= 5
+    thr, profit, n = dc.choose_threshold(p, np.ones_like(p), -np.abs(net), cfg)
+    assert thr == dc.NO_THRESHOLD and n == 0   # nothing profitable -> do not trade
+    thr, *_ = dc.choose_threshold(p, -np.ones_like(p), net, cfg)
+    assert thr == dc.NO_THRESHOLD              # negative EV everywhere -> no trades
