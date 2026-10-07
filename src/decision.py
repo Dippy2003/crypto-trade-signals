@@ -78,3 +78,17 @@ def choose_threshold(p_win: np.ndarray, ev: np.ndarray, net: np.ndarray, cfg: Co
         if profit > best[1]:
             best = (float(thr), profit, n)
     return best
+
+
+def attach_market(oof: pd.DataFrame, cfg: Config) -> pd.DataFrame:
+    """Join bar close and minute-accurate outcomes (entry, exit, minutes, returns) onto OOF rows."""
+    parts = []
+    for sym, g in oof.groupby("symbol", sort=False):
+        lab = load_labels(cfg, sym).drop(columns=[f"{s}_label" for s in SIDES])
+        mk = lab.join(load_hourly(cfg, sym)[["close"]])
+        parts.append(g.join(mk, on="time"))
+    out = pd.concat(parts).sort_index()
+    out["atr_frac"] = out["atr"] / out["close"]
+    for side, sgn in (("long", LONG), ("short", SHORT)):
+        out[f"{side}_net"] = net_return(sgn, out["entry"].to_numpy(), out[f"{side}_exit"].to_numpy(), cfg)
+    return out
