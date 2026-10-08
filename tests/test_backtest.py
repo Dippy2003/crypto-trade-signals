@@ -42,3 +42,15 @@ def test_long_win_sizing_and_log(cfg):
     assert (t["tp"], t["sl"], t["exit"], t["exit_reason"]) == (102.0, 99.0, 102.0, "TP")
     assert t["pnl"] == pytest.approx(10_000 * net_return(1, 100.0, 102.0, cfg))
     assert res.equity.iloc[-1] == pytest.approx(10_000 + t["pnl"])
+
+
+def test_stop_loss_loses_about_one_percent(cfg):
+    res = run([sig(0, SHORT, LOSS)], cfg)
+    t = res.trades.iloc[0]
+    assert t["exit_reason"] == "SL" and t["sl"] == 101.0 and t["side"] == "SHORT"
+    assert t["pnl"] / 10_000 == pytest.approx(-0.01 - 0.0024, abs=3e-4)
+
+
+def test_leverage_cap(cfg):
+    res = run([sig(0, LONG, WIN, atr=0.1)], cfg)       # 0.1% stop would need 10x notional
+    assert res.trades.iloc[0]["notional"] == pytest.approx(2 * 10_000)
