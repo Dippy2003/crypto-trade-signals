@@ -89,3 +89,12 @@ def test_no_trades_gives_flat_equity(cfg):
     rows[0]["decision"] = 0
     res = run(rows, cfg)
     assert res.trades.empty and (res.equity == 10_000).all()
+
+
+def test_save_trades(cfg, tmp_path):
+    res = run([sig(0, LONG, WIN), sig(5, SHORT, LOSS)], cfg)
+    bt.save_trades(res, tmp_path / "t.csv")
+    back = pd.read_csv(tmp_path / "t.csv")
+    assert list(back["exit_reason"]) == ["TP", "SL"]
+    assert {"symbol", "side", "entry", "tp", "sl", "exit", "pnl", "net_ret", "confidence"} <= set(back.columns)
+    assert np.isclose(back["pnl"].sum(), res.trades["pnl"].sum())
