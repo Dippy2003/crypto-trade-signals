@@ -99,6 +99,35 @@ def buy_and_hold(closes: dict[str, pd.Series], start: pd.Timestamp, end: pd.Time
     return stats, eq.rename("equity")
 
 
+def random_baseline(pool: pd.DataFrame, n_trades: int, cfg: Config, start: pd.Timestamp,
+                    end: pd.Timestamp, sims: int | None = None, seed: int | None = None) -> tuple[dict, list[float]]:
+    """Random entries with the same trade count. ``pool`` holds candidate rows with market outcomes.
+
+    Returns (median-simulation style summary with percentiles, list of net returns per simulation).
+    """
+    sims = sims or cfg.metrics.random_sims
+    rng = np.random.default_rng(cfg.model.seed if seed is None else seed)
+    if n_trades == 0 or pool.empty:
+        return {"trades": 0, "net_return": 0.0, "net_return_p05": 0.0, "net_return_p95": 0.0,
+                "mean_trade_ret": np.nan, "sharpe": 0.0, "max_drawdown": 0.0}, []
+    rets, rows = [], []
+    for _ in range(sims):
+        pick = pool.iloc[np.sort(rng.choice(len(pool), min(n_trades, len(pool)), replace=False))].copy()
+        pick["decision"] = rng.choice([LONG, SHORT], len(pick))
+        res = backtest(pick, cfg, start, end)
+        s = summarize(res, cfg)
+        rets.append(s["net_return"])
+        rows.append(s)
+    df = pd.DataFrame(rows)
+    return {"trades": float(df["trades"].mean()), "net_return": float(df["net_return"].median()),
+            "net_return_p05": float(np.quantile(rets, 0.05)), "net_return_p95": float(np.quantile(rets, 0.95)),
+            "mean_trade_ret": float(df["mean_trade_ret"].mean()), "sharpe": float(df["sharpe"].median()),
+            "max_drawdown": float(df["max_drawdown"].median()), "win_rate": float(df["win_rate"].mean()),
+            "profit_factor": float(df["profit_factor"].replace(np.inf, np.nan).median()),
+            "sortino": float(df["sortino"].replace(np.inf, np.nan).median()),
+            "exposure": float(df["exposure"].mean())}, rets
+
+
 COLUMNS = [("net_return", "Net return"), ("trades", "Trades"), ("win_rate", "Win rate"),
            ("avg_win", "Avg win"), ("avg_loss", "Avg loss"), ("profit_factor", "Profit factor"),
            ("mean_trade_ret", "Mean trade"), ("max_drawdown", "Max DD"), ("sharpe", "Sharpe"),
