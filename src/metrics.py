@@ -38,6 +38,39 @@ def sharpe_sortino(equity: pd.Series, periods_per_year: int) -> tuple[float, flo
     return float(r.mean() / r.std() * ann), sortino
 
 
+def exposure(trades: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> float:
+    """Fraction of the period with at least one open position."""
+    total = (end - start).total_seconds()
+    if trades.empty or total <= 0:
+        return 0.0
+    iv = trades[["entry_time", "exit_time"]].sort_values("entry_time").to_numpy()
+    covered, cur_s, cur_e = 0.0, iv[0][0], iv[0][1]
+    for s, e in iv[1:]:
+        if s > cur_e:
+            covered += (cur_e - cur_s).total_seconds()
+            cur_s, cur_e = s, e
+        else:
+            cur_e = max(cur_e, e)
+    covered += (cur_e - cur_s).total_seconds()
+    return min(covered / total, 1.0)
+
+
+def trade_stats(trades: pd.DataFrame) -> dict:
+    if trades.empty:
+        return {"trades": 0, "win_rate": np.nan, "avg_win": np.nan, "avg_loss": np.nan,
+                "profit_factor": np.nan, "mean_trade_ret": np.nan}
+    r = trades["net_ret"]
+    wins, losses = trades.loc[r > 0, "pnl"], trades.loc[r <= 0, "pnl"]
+    return {
+        "trades": len(trades),
+        "win_rate": float((r > 0).mean()),
+        "avg_win": float(r[r > 0].mean()) if (r > 0).any() else np.nan,
+        "avg_loss": float(r[r <= 0].mean()) if (r <= 0).any() else np.nan,
+        "profit_factor": float(wins.sum() / -losses.sum()) if losses.sum() < 0 else float("inf"),
+        "mean_trade_ret": float(r.mean()),
+    }
+
+
 COLUMNS = [("net_return", "Net return"), ("trades", "Trades"), ("win_rate", "Win rate"),
            ("avg_win", "Avg win"), ("avg_loss", "Avg loss"), ("profit_factor", "Profit factor"),
            ("mean_trade_ret", "Mean trade"), ("max_drawdown", "Max DD"), ("sharpe", "Sharpe"),

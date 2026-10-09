@@ -31,3 +31,19 @@ def test_sharpe_sortino_annualized():
     assert sortino == pytest.approx(r.mean() / np.sqrt((np.minimum(r, 0) ** 2).mean()) * np.sqrt(8760))
     flat = pd.Series(100.0, index=hours(10))
     assert mt.sharpe_sortino(flat, 8760) == (0.0, 0.0)
+
+
+def test_trade_stats_and_exposure():
+    tr = pd.DataFrame({
+        "net_ret": [0.02, -0.01, 0.01, -0.01],
+        "pnl": [200.0, -100.0, 100.0, -100.0],
+        "entry_time": [T, T + pd.Timedelta(hours=1), T + pd.Timedelta(hours=5), T + pd.Timedelta(hours=8)],
+        "exit_time": [T + pd.Timedelta(hours=2), T + pd.Timedelta(hours=3), T + pd.Timedelta(hours=6),
+                      T + pd.Timedelta(hours=9)],
+    })
+    s = mt.trade_stats(tr)
+    assert s["trades"] == 4 and s["win_rate"] == 0.5
+    assert s["avg_win"] == pytest.approx(0.015) and s["avg_loss"] == pytest.approx(-0.01)
+    assert s["profit_factor"] == pytest.approx(1.5)
+    # covered: 0-3h, 5-6h, 8-9h = 5h of 10h
+    assert mt.exposure(tr, T, T + pd.Timedelta(hours=10)) == pytest.approx(0.5)
