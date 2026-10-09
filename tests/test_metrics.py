@@ -72,3 +72,12 @@ def test_random_baseline_same_trade_count(cfg):
     assert summary["net_return_p05"] <= summary["net_return"] <= summary["net_return_p95"]
     empty, none = mt.random_baseline(pool, 0, cfg, start, end)
     assert empty["trades"] == 0 and none == []
+
+
+def test_table_and_plot(cfg, tmp_path):
+    eq = pd.Series([100.0, 101, 99, 103], index=hours(4))
+    s = {"net_return": 0.03, "trades": 3, "win_rate": 2 / 3, "max_drawdown": -0.02, "sharpe": 1.2}
+    table = mt.metrics_table({"model": s, "buy & hold": s})
+    assert "| model | +3.00% | 3 | 66.7%" in table and "n/a" in table
+    mt.plot_equity({"model": eq}, tmp_path / "eq.png", "test")
+    assert (tmp_path / "eq.png").stat().st_size > 1000
