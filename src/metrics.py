@@ -83,6 +83,22 @@ def summarize(res: BacktestResult, cfg: Config) -> dict:
     }
 
 
+def buy_and_hold(closes: dict[str, pd.Series], start: pd.Timestamp, end: pd.Timestamp, cfg: Config) -> tuple[dict, pd.Series]:
+    """Equal-weight buy-and-hold of every symbol over [start, end], paying one round trip."""
+    grid = pd.date_range(start.floor("h"), end.ceil("h"), freq="1h")
+    rel = []
+    for c in closes.values():
+        s = c.reindex(grid).ffill().bfill()
+        rel.append(s / s.iloc[0])
+    eq = cfg.backtest.initial_equity * (1 - round_trip_cost(cfg)) * pd.concat(rel, axis=1).mean(axis=1)
+    sharpe, sortino = sharpe_sortino(eq, cfg.metrics.periods_per_year)
+    stats = {"net_return": float(eq.iloc[-1] / cfg.backtest.initial_equity - 1), "trades": len(closes),
+             "win_rate": np.nan, "avg_win": np.nan, "avg_loss": np.nan, "profit_factor": np.nan,
+             "mean_trade_ret": np.nan, "max_drawdown": max_drawdown(eq), "sharpe": sharpe,
+             "sortino": sortino, "exposure": 1.0}
+    return stats, eq.rename("equity")
+
+
 COLUMNS = [("net_return", "Net return"), ("trades", "Trades"), ("win_rate", "Win rate"),
            ("avg_win", "Avg win"), ("avg_loss", "Avg loss"), ("profit_factor", "Profit factor"),
            ("mean_trade_ret", "Mean trade"), ("max_drawdown", "Max DD"), ("sharpe", "Sharpe"),
