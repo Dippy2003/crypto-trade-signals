@@ -71,6 +71,18 @@ def trade_stats(trades: pd.DataFrame) -> dict:
     }
 
 
+def summarize(res: BacktestResult, cfg: Config) -> dict:
+    eq = res.equity
+    sharpe, sortino = sharpe_sortino(eq, cfg.metrics.periods_per_year)
+    return {
+        "net_return": float(eq.iloc[-1] / cfg.backtest.initial_equity - 1),
+        **trade_stats(res.trades),
+        "max_drawdown": max_drawdown(eq),
+        "sharpe": sharpe, "sortino": sortino,
+        "exposure": exposure(res.trades, res.start, res.end),
+    }
+
+
 COLUMNS = [("net_return", "Net return"), ("trades", "Trades"), ("win_rate", "Win rate"),
            ("avg_win", "Avg win"), ("avg_loss", "Avg loss"), ("profit_factor", "Profit factor"),
            ("mean_trade_ret", "Mean trade"), ("max_drawdown", "Max DD"), ("sharpe", "Sharpe"),
