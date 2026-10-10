@@ -230,3 +230,55 @@ def bundle_decide(bundle: dict, feats: pd.DataFrame, atr_frac: np.ndarray, cfg: 
     out["confidence"] = np.where(dec == LONG, probs["long"][:, 2],
                                  np.where(dec == SHORT, probs["short"][:, 2], np.nan))
     return out
+
+
+def holdout_lock(cfg: Config):
+    return resolve_path(cfg, "reports") / "holdout.lock"
+
+
+def run_holdout(cfg: Config, kind: str, i_understand: bool = False) -> dict:
+    lock = holdout_lock(cfg)
+    if lock.exists() and not i_understand:
+        raise SystemExit(f"The holdout was already evaluated ({lock.read_text().strip()}).\n"
+                         "Running it again would turn it into a validation set. "
+                         "Pass --i-understand to run anyway; say so when reporting results.")
+    bundles = fit_final(cfg, kind)
+    parts = []
+    for sym, b in bundles.items():
+        ds = tr.assemble_dataset(cfg, sym)
+        df = ds.df[holdout_mask(ds.df.index, cfg)]
+        if df.empty:
+            continue
+        d = bundle_decide(b, df, (df["atr"] / df["close"]).to_numpy(), cfg)
+        part = df.join(d).reset_index()
+        part["symbol"] = sym
+        part["fold"] = 0
+        parts.append(part)
+    if not parts:
+        raise SystemExit("No labelled holdout rows yet.")
+    dec = pd.concat(parts, ignore_index=True)
+    ev = evaluate_decisions(dec, cfg, f"{kind} holdout")
+    ev["cfg"] = cfg
+    reports = ensure_dir(resolve_path(cfg, "reports"))
+    figs = ensure_dir(reports / "figures")
+    plot_equity({kind: ev["result"].equity, "buy & hold": ev["buy_hold_eq"]}, figs / "equity_holdout.png",
+                f"Holdout {kind} (after costs)")
+    save_trades(ev["result"], reports / "trades_holdout.csv")
+    thr = "; ".join(f"{s}: long {b['thresholds']['long']:.2f}, short {b['thresholds']['short']:.2f}"
+                    for s, b in bundles.items()).replace("inf", "off")
+    md = [f"# Final holdout: {kind}", "",
+          f"Evaluated {datetime.now(timezone.utc):%Y-%m-%d %H:%M} UTC on {ev['start']:%Y-%m-%d} to "
+          f"{ev['end']:%Y-%m-%d}" + (" (**re-run with --i-understand**)" if lock.exists() else " (first run)") + ".",
+          "Model fit on all development data; calibrators and thresholds from walk-forward OOF only.", "",
+          "## Setup", "", *setup_lines(cfg), f"- Thresholds: {thr}", "",
+          "## Verdict", "", verdict(ev), "",
+          "## Results", "",
+          metrics_table({kind: ev["model"], "buy & hold": ev["buy_hold"], "random entries (median)": ev["random"]}),
+          "", f"![equity](figures/equity_holdout.png)", "",
+          f"Signals: {int((dec['decision'] == LONG).sum())} long, {int((dec['decision'] == SHORT).sum())} short, "
+          f"{int((dec['decision'] == FLAT).sum())} no trade."]
+    (reports / "holdout.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    lock.write_text(json.dumps({"kind": kind, "at": datetime.now(timezone.utc).isoformat()}))
+    print(f"holdout {kind}: {ev['model']['trades']} trades, net {_pct(ev['model']['net_return'])}. "
+          f"Saved {reports / 'holdout.md'}")
+    return ev
