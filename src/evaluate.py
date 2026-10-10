@@ -171,3 +171,43 @@ def run_walk_forward(cfg: Config, kind: str, retrain: bool = True, oof: pd.DataF
     ev["decisions"] = dec
     ev["thresholds"] = thresholds
     return ev
+
+
+# ---------------------------------------------------------------- final model and holdout
+
+def final_bundle_path(cfg: Config, kind: str, symbol: str):
+    return resolve_path(cfg, "models") / f"final_{kind}_{symbol}.pkl"
+
+
+def fit_final(cfg: Config, kind: str, symbols: list[str] | None = None) -> dict[str, dict]:
+    """Fit the final model per symbol on all development data and save it with its calibrators
+    (fit on all walk-forward OOF rows) and thresholds (chosen on calibrated walk-forward rows)."""
+    oof = tr.load_oof(cfg, kind)
+    mk = attach_market(calibrate_oof(oof, cfg), cfg)
+    bundles = {}
+    for sym in symbols or cfg.symbols:
+        ds = tr.development_data(tr.assemble_dataset(cfg, sym), cfg)
+        X, t = ds.df[ds.features].to_numpy(), ds.df.index
+        fit, val = fit_val_masks(t, np.ones(len(t), dtype=bool), cfg)
+        g = oof[oof["symbol"] == sym]
+        v = mk[(mk["symbol"] == sym) & mk["calibrated"]]
+        b = {"kind": kind, "symbol": sym, "features": ds.features, "models": {}, "calibrators": {},
+             "thresholds": {}, "trained_until": str(t.max()), "created": datetime.now(timezone.utc).isoformat()}
+        for side in tr.SIDES:
+            y = ds.df[f"{side}_label"].to_numpy()
+            b["models"][side] = tr.TRAINERS[kind](X[fit], y[fit], X[val], y[val], cfg)
+            b["calibrators"][side] = fit_calibrator(g[[f"{side}_{p}" for p in tr.PROBA]].to_numpy(),
+                                                    g[f"{side}_label"].to_numpy(), cfg)
+            pv = v[[f"{side}_{c}" for c in CAL]].to_numpy()
+            thr = choose_threshold(pv[:, 2], expected_value(pv, v["atr_frac"].to_numpy(), cfg),
+                                   v[f"{side}_net"].to_numpy(), cfg) if len(v) else (NO_THRESHOLD, 0.0, 0)
+            b["thresholds"][side] = thr[0]
+        ensure_dir(final_bundle_path(cfg, kind, sym).parent)
+        joblib.dump(b, final_bundle_path(cfg, kind, sym))
+        bundles[sym] = b
+        print(f"final {kind} {sym}: trained until {b['trained_until']}, thresholds {b['thresholds']}")
+    return bundles
+
+
+def load_bundle(cfg: Config, kind: str, symbol: str) -> dict:
+    return joblib.load(final_bundle_path(cfg, kind, symbol))
