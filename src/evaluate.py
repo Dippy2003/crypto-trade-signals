@@ -62,3 +62,36 @@ def per_fold(dec: pd.DataFrame, cfg: Config) -> pd.DataFrame:
                      "trades": s["trades"], "net_return": s["net_return"], "win_rate": s["win_rate"],
                      "buy_hold": bh["net_return"]})
     return pd.DataFrame(rows)
+
+
+def _pct(v) -> str:
+    return "n/a" if v is None or (isinstance(v, float) and np.isnan(v)) else f"{v:+.2%}"
+
+
+def setup_lines(cfg: Config) -> list[str]:
+    lc, c, bt = cfg.labels, cfg.costs, cfg.backtest
+    return [f"- Barriers: TP {lc.tp_atr} x ATR({lc.atr_n}), SL {lc.sl_atr} x ATR, horizon {lc.horizon_h}h, "
+            "entry at the first minute after the signal bar",
+            f"- Costs: fee {c.fee_per_side:.2%} per side + slippage {c.slippage_per_side:.2%} per side "
+            f"(round trip {round_trip_cost(cfg):.2%})",
+            f"- Sizing: risk {bt.risk_per_trade:.0%} of equity per trade, max leverage {bt.max_position_leverage}x, "
+            f"daily loss stop {bt.max_daily_loss:.0%}",
+            f"- Walk-forward: {cfg.splits.test_months}-month test periods from {cfg.splits.first_test_start}, "
+            f"embargo {cfg.splits.embargo_h}h, holdout from {cfg.splits.holdout_start} untouched"]
+
+
+def verdict(ev: dict) -> str:
+    m, rnd, bh = ev["model"], ev["random"], ev["buy_hold"]
+    if m["trades"] == 0:
+        return ("**No trades.** On every validation window no probability threshold produced a profit "
+                "after costs, so the decision rule stayed flat. This is a valid result: the model shows no "
+                "tradable edge after costs under this setup.")
+    p95 = rnd.get("net_return_p95", np.nan)
+    beats_random = m["net_return"] > p95
+    txt = (f"The model made {m['trades']} trades for {_pct(m['net_return'])} vs buy-and-hold "
+           f"{_pct(bh['net_return'])} and a random-entry median of {_pct(rnd['net_return'])} "
+           f"(95th percentile {_pct(p95)}). ")
+    if m["net_return"] <= 0:
+        return txt + "**No edge after costs.**"
+    return txt + ("It beats 95% of random-entry runs." if beats_random else
+                  "**It does not beat the random-entry range, so the result is not distinguishable from luck.**")
