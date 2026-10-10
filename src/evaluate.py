@@ -95,3 +95,52 @@ def verdict(ev: dict) -> str:
         return txt + "**No edge after costs.**"
     return txt + ("It beats 95% of random-entry runs." if beats_random else
                   "**It does not beat the random-entry range, so the result is not distinguishable from luck.**")
+
+
+def walk_forward_markdown(ev: dict, folds: pd.DataFrame, thresholds: pd.DataFrame, cal_rel: str,
+                          kind: str, fig_name: str, n_warmup: int) -> str:
+    res = ev["result"]
+    lines = [f"# Walk-forward evaluation: {kind}", "",
+             f"Traded period: {ev['start']:%Y-%m-%d} to {ev['end']:%Y-%m-%d}. "
+             f"{n_warmup:,} out-of-fold rows in warm-up folds (no calibration history) are not traded.", "",
+             "## Setup", "", *setup_lines(ev["cfg"]), "",
+             "## Verdict", "", verdict(ev), "",
+             "## Results", "",
+             metrics_table({kind: ev["model"], "buy & hold": ev["buy_hold"],
+                            "random entries (median)": ev["random"]}), "",
+             f"Random entries: {len(ev['random_rets'])} simulations with the same trade count; "
+             f"net return 5-95% range {_pct(ev['random'].get('net_return_p05'))} to "
+             f"{_pct(ev['random'].get('net_return_p95'))}. Skipped signals: {res.skipped}.", "",
+             f"![equity](figures/{fig_name})", "",
+             "## Per fold", "",
+             "| Fold | From | To | Longs | Shorts | Trades | Net return | Win rate | Buy & hold |",
+             "|---:|---|---|---:|---:|---:|---:|---:|---:|"]
+    for r in folds.to_dict("records"):
+        wr = "n/a" if np.isnan(r["win_rate"]) else f"{r['win_rate']:.1%}"
+        lines.append(f"| {r['fold']} | {r['from']} | {r['to']} | {r['longs']} | {r['shorts']} | {r['trades']} | "
+                     f"{_pct(r['net_return'])} | {wr} | {_pct(r['buy_hold'])} |")
+    lines += ["", "## Thresholds chosen on earlier folds", "",
+              "| Symbol | Fold | Validation rows | Long thr | Short thr | Val profit long | Val profit short |",
+              "|---|---:|---:|---:|---:|---:|---:|"]
+    for r in thresholds.to_dict("records"):
+        fmt = lambda x: "off" if x == NO_THRESHOLD else f"{x:.2f}"
+        lines.append(f"| {r['symbol']} | {r['fold']} | {r['val_rows']:,} | {fmt(r['thr_long'])} | "
+                     f"{fmt(r['thr_short'])} | {r['val_profit_long']:+.3f} | {r['val_profit_short']:+.3f} |")
+    lines += ["", "## Calibration (calibrated P(WIN) vs observed WIN rate)", "", cal_rel, ""]
+    if not res.trades.empty:
+        lines += ["## By symbol and side", "", "| Symbol | Side | Trades | Win rate | Mean net return |",
+                  "|---|---|---:|---:|---:|"]
+        for (s, sd), g in res.trades.groupby(["symbol", "side"]):
+            lines.append(f"| {s} | {sd} | {len(g)} | {(g['net_ret'] > 0).mean():.1%} | {g['net_ret'].mean():+.3%} |")
+    lines += ["", "Sharpe/Sortino use hourly realized equity (P/L booked at exit), annualized with sqrt(8760)."]
+    return "\n".join(lines) + "\n"
+
+
+def reliability_markdown(cal: pd.DataFrame) -> str:
+    c = cal[cal["calibrated"]]
+    parts = ["| Side | Bin mean P(WIN) | Observed WIN | Rows |", "|---|---:|---:|---:|"]
+    for side in tr.SIDES:
+        rel = reliability(c[f"{side}_c_win"].to_numpy(), (c[f"{side}_label"] == 2).to_numpy())
+        for r in rel[rel["n"] >= 30].to_dict("records"):
+            parts.append(f"| {side} | {r['predicted']:.3f} | {r['observed']:.3f} | {r['n']:,} |")
+    return "\n".join(parts)
