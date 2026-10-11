@@ -25,3 +25,15 @@ def test_render_images_fixed_size_and_resumable(project):
     assert (255, 255, 255) in colors and len(colors) > 3    # white background plus candle colors
     again = ci.render_symbol(project, "BTCUSDT", times, workers=1)
     assert again["rendered"] == 0 and again["existing"] == 6
+
+
+def test_render_with_worker_pool(project):
+    cfg = project
+    times = assemble_dataset(cfg, "ETHUSDT").df.index[:8]
+    cfg.images.chunk_size = 4
+    try:
+        out = ci.render_symbol(cfg, "ETHUSDT", times, workers=2)
+    finally:
+        cfg.images.chunk_size = 256
+    assert out["rendered"] == 8
+    assert all(ci.image_path(cfg, "ETHUSDT", t).exists() for t in times)
