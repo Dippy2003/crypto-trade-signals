@@ -121,3 +121,18 @@ def render_symbol(cfg: Config, symbol: str, times: pd.DatetimeIndex | None = Non
     counts = {"requested": len(times), "complete_windows": len(ok), "existing": existing, "rendered": done}
     print(f"{symbol}: {counts}")
     return counts
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbols", nargs="+")
+    p.add_argument("--workers", type=int)
+    p.add_argument("--limit", type=int, help="render at most this many new images per symbol")
+    a = p.parse_args()
+    cfg = load_config()
+    for sym in a.symbols or cfg.symbols:
+        render_symbol(cfg, sym, workers=a.workers, limit=a.limit)
+
+
+if __name__ == "__main__":
+    main()
