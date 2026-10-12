@@ -116,6 +116,18 @@ def fit_cnn(paths_fit, y_fit, paths_val, y_val, cfg: Config, dev: torch.device |
     return model.eval()
 
 
+@torch.no_grad()
+def predict(model: nn.Module, paths: list[str], cfg: Config, dev: torch.device | None = None) -> np.ndarray:
+    """(n, 3) softmax probabilities in CLASSES order."""
+    dev = dev or device()
+    out = []
+    for x, _ in _loader(paths, None, cfg, shuffle=False):
+        with torch.autocast(dev.type, enabled=dev.type == "cuda"):
+            out.append(torch.softmax(model(x.to(dev)).float(), dim=1).cpu().numpy())
+    p = np.concatenate(out).astype(np.float64) if out else np.zeros((0, 3))
+    return p / p.sum(axis=1, keepdims=True)
+
+
 def image_rows(cfg: Config, symbol: str) -> tuple[pd.DataFrame, list[str]]:
     """Development rows that have a chart image, and their image paths."""
     ds = tr.development_data(tr.assemble_dataset(cfg, symbol), cfg)
