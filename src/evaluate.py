@@ -9,6 +9,7 @@ period ONCE and writes reports/holdout.md. A second run is refused unless --i-un
 passed, because looking at the holdout twice turns it into a validation set.
 
     python -m src.evaluate [--model xgb] [--no-retrain]
+    python -m src.evaluate --model cnn --no-retrain     # after `python -m src.cnn`
     python -m src.evaluate --holdout [--model xgb]
 """
 from __future__ import annotations
@@ -147,7 +148,11 @@ def reliability_markdown(cal: pd.DataFrame) -> str:
 
 
 def run_walk_forward(cfg: Config, kind: str, retrain: bool = True, oof: pd.DataFrame | None = None) -> dict:
-    if oof is None:
+    if oof is None and retrain and kind == "cnn":
+        from src.cnn import run as run_cnn
+
+        oof = run_cnn(cfg)
+    elif oof is None:
         oof = tr.run(cfg, kind) if retrain else tr.load_oof(cfg, kind)
     cal = calibrate_oof(oof, cfg)
     dec, thresholds = decide_oof(attach_market(cal, cfg), cfg)
@@ -237,6 +242,8 @@ def holdout_lock(cfg: Config):
 
 
 def run_holdout(cfg: Config, kind: str, i_understand: bool = False) -> dict:
+    if kind not in tr.TRAINERS:
+        raise SystemExit(f"The holdout supports the tabular models {sorted(tr.TRAINERS)}, not {kind!r}.")
     lock = holdout_lock(cfg)
     if lock.exists() and not i_understand:
         raise SystemExit(f"The holdout was already evaluated ({lock.read_text().strip()}).\n"
@@ -286,7 +293,7 @@ def run_holdout(cfg: Config, kind: str, i_understand: bool = False) -> dict:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model", default="xgb", choices=sorted(tr.TRAINERS))
+    p.add_argument("--model", default="xgb", choices=sorted(tr.TRAINERS) + ["cnn"])
     p.add_argument("--no-retrain", action="store_true", help="reuse the saved OOF predictions")
     p.add_argument("--holdout", action="store_true", help="evaluate the final model on the holdout (once)")
     p.add_argument("--i-understand", action="store_true", help="allow a second holdout run")

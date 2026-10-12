@@ -40,3 +40,18 @@ def test_dataset_normalizes_images(cnn_cfg):
     assert x.shape == (3, 64, 64) and x.dtype == torch.float32
     assert x.min() < 0 < x.max()                              # ImageNet normalization applied
     assert y in (0, 1, 2)
+
+
+def test_cnn_oof_reuses_calibration_decision_backtest(cnn_cfg):
+    oof = cnn.run(cnn_cfg, folds=[2, 3])
+    assert sorted(oof["fold"].unique()) == [2, 3]
+    assert list(oof.columns) == list(tr.load_oof(cnn_cfg, "cnn").columns)
+    for side in tr.SIDES:
+        np.testing.assert_allclose(oof[[f"{side}_{p}" for p in tr.PROBA]].sum(axis=1), 1.0)
+    # same OOF format as XGBoost -> the evaluation pipeline runs unchanged
+    xgb_cols = {"time", "symbol", "fold"} | {f"{s}_{p}" for s in tr.SIDES for p in tr.PROBA + ["label"]}
+    assert set(oof.columns) == xgb_cols
+    e = ev.run_walk_forward(cnn_cfg, "cnn", oof=oof)
+    assert e["model"]["trades"] >= 0
+    assert (cnn.resolve_path(cnn_cfg, "reports") / "walk_forward_cnn.md").exists()
+    assert (cnn.resolve_path(cnn_cfg, "models") / "cnn_BTCUSDT_short_fold3.pt").exists()
