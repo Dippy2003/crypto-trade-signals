@@ -186,3 +186,17 @@ def run(cfg: Config, symbols: list[str] | None = None, folds: list[int] | None =
     report.write_text(tr.metrics_markdown(m, "cnn"), encoding="utf-8")
     print(f"Saved {tr.oof_path(cfg, 'cnn')} and {report}")
     return oof
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbols", nargs="+")
+    p.add_argument("--folds", nargs="+", type=int, help="only these fold numbers (default: all)")
+    p.add_argument("--epochs", type=int)
+    a = p.parse_args()
+    cfg = load_config(overrides={"cnn": {"epochs": a.epochs}} if a.epochs else None)
+    run(cfg, a.symbols, a.folds)
+
+
+if __name__ == "__main__":
+    main()
