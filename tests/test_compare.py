@@ -33,3 +33,20 @@ def test_compare_writes_report(project):
     assert "| xgb |" in report and "| logreg |" in report and "random" in report
     assert "bootstrap CI" in report
     assert set(out["tests"]["a"]) <= {"xgb", "logreg", "random"}
+
+
+def test_compare_with_forced_trades(project, monkeypatch):
+    real = cp.decide_oof
+
+    def forced(mk, cfg):
+        dec, table = real(mk, cfg)
+        dec.loc[dec.index[::30], "decision"] = 1          # force trades so the CI rows have numbers
+        return dec, table
+
+    monkeypatch.setattr(cp, "decide_oof", forced)
+    out = cp.compare(project, ["xgb", "logreg"])
+    assert out["results"]["xgb"]["summary"]["trades"] > 5
+    t = out["tests"]
+    row = t[(t["a"] == "xgb") & (t["b"] == "random")].iloc[0]
+    assert row["lo"] <= row["diff"] <= row["hi"]
+    assert out["random"]["trades"] > 0
