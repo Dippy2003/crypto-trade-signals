@@ -22,3 +22,14 @@ def test_common_rows_intersection():
     out = cp.common_rows({"a": a, "b": b})
     assert len(out["a"]) == len(out["b"]) == 4
     assert (out["a"]["time"].to_numpy() == out["b"]["time"].to_numpy()).all()
+
+
+def test_compare_writes_report(project):
+    tr.run(project, "logreg")
+    tr.run(project, "xgb")
+    out = cp.compare(project, ["xgb", "cnn_missing", "logreg"])
+    assert out["models"] == ["xgb", "logreg"]
+    report = (resolve_path(project, "reports") / "comparison.md").read_text()
+    assert "| xgb |" in report and "| logreg |" in report and "random" in report
+    assert "bootstrap CI" in report
+    assert set(out["tests"]["a"]) <= {"xgb", "logreg", "random"}
