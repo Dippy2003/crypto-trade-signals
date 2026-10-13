@@ -59,3 +59,16 @@ def bootstrap_diff(a: np.ndarray, b: np.ndarray, n_boot: int, level: float, seed
     d = a[ia].mean(axis=1) - b[ib].mean(axis=1)
     lo, hi = np.quantile(d, [(1 - level) / 2, 1 - (1 - level) / 2])
     return float(a.mean() - b.mean()), float(lo), float(hi)
+
+
+def random_trades(pool: pd.DataFrame, n: int, cfg: Config, start, end) -> tuple[pd.DataFrame, list[dict]]:
+    """Trades from ``random_sims`` random-entry runs (same count, random side) and their summaries."""
+    rng = np.random.default_rng(cfg.model.seed)
+    trades, sums = [], []
+    for _ in range(cfg.metrics.random_sims if n else 0):
+        pick = pool.iloc[np.sort(rng.choice(len(pool), min(n, len(pool)), replace=False))].copy()
+        pick["decision"] = rng.choice([LONG, SHORT], len(pick))
+        res = backtest(pick, cfg, start, end)
+        trades.append(res.trades)
+        sums.append(summarize(res, cfg))
+    return (pd.concat(trades, ignore_index=True) if trades else pd.DataFrame(columns=["net_ret"])), sums
