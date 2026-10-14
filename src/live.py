@@ -148,3 +148,23 @@ def format_signal(s: Signal) -> str:
         body = (f"  {s.decision:<9}  entry ~{s.entry:,.2f}   TP {s.tp:,.2f}   SL {s.sl:,.2f}   "
                 f"confidence {s.confidence:.1%}   EV {s.ev:+.3%}")
     return head + "\n" + body
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--symbols", nargs="+")
+    p.add_argument("--model")
+    a = p.parse_args()
+    cfg = load_config()
+    for sym in a.symbols or cfg.symbols:
+        try:
+            sig, _ = get_signal(cfg, sym, a.model)
+        except FileNotFoundError:
+            print(f"{sym}: no final model; run `python -m src.evaluate --holdout` first")
+            continue
+        print(format_signal(sig))
+    print("\nResearch only, not financial advice.")
+
+
+if __name__ == "__main__":
+    main()
