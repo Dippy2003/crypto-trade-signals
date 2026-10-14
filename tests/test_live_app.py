@@ -103,3 +103,11 @@ def test_signal_levels_for_long(project, bundle):
     assert sig.decision == "LONG"
     assert sig.tp == pytest.approx(sig.entry + 2 * sig.atr) and sig.sl == pytest.approx(sig.entry - sig.atr)
     assert "TP" in live.format_signal(sig)
+
+
+def test_get_signal_end_to_end(project, bundle):
+    hourly = {s: load_hourly(project, s) for s in ["BTCUSDT", "ETHUSDT"]}
+    now = hourly["BTCUSDT"].index[-1] + pd.Timedelta(hours=1, seconds=5)
+    sig, h = live.get_signal(project, "ETHUSDT", "logreg", session=FakeBinance(hourly), now=now)
+    assert sig.bar_time == hourly["ETHUSDT"].index[-1]
+    assert len(h) == min(project.live.history_bars, len(hourly["ETHUSDT"]))

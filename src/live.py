@@ -129,6 +129,16 @@ def make_signal(cfg: Config, symbol: str, hourly: dict[str, pd.DataFrame], bundl
                   float(d["long_c_win"]), float(d["short_c_win"]), float(d["ev"]), atr, bundle["kind"])
 
 
+def get_signal(cfg: Config, symbol: str, kind: str | None = None, session=None,
+               now: pd.Timestamp | None = None) -> tuple[Signal, pd.DataFrame]:
+    """Fetch data, load the final bundle and return (signal, hourly candles of ``symbol``)."""
+    kind = kind or cfg.live.model_kind
+    bundle = load_bundle(cfg, kind, symbol)
+    need = {symbol} | ({cfg.context_symbol} if symbol != cfg.context_symbol else set())
+    hourly = {s: fetch_hourly(s, cfg, session=session, now=now) for s in need}
+    return make_signal(cfg, symbol, hourly, bundle), hourly[symbol]
+
+
 def format_signal(s: Signal) -> str:
     head = f"{s.symbol}  bar {s.bar_time:%Y-%m-%d %H:%M} UTC (closed {s.decision_time:%H:%M})  [{s.model}]"
     if s.decision == "NO TRADE":
