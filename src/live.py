@@ -66,3 +66,26 @@ def fetch_hourly(symbol: str, cfg: Config, bars: int | None = None, session=None
     h = h[~h.index.duplicated()].sort_index()
     h = h[h["close_time"] < now_ms]                       # drop the candle that is still forming
     return h[["open", "high", "low", "close", "volume"]].tail(bars)
+
+
+def fetch_minutes(symbol: str, cfg: Config, start: pd.Timestamp, end: pd.Timestamp, session=None) -> pd.DataFrame:
+    """Closed 1m candles with open time in [start, end) (paginating forwards)."""
+    lv = cfg.live
+    session = session or requests.Session()
+    parts, cur = [], int(start.timestamp() * 1000)
+    end_ms = int(end.timestamp() * 1000)
+    while cur < end_ms:
+        rows = _get(session, lv.api_url, {"symbol": symbol, "interval": "1m", "limit": lv.request_limit,
+                                          "startTime": cur, "endTime": end_ms - 1}, lv.timeout_s)
+        if not rows:
+            break
+        df = klines_frame(rows)
+        parts.append(df)
+        cur = int(df["open_time"].iloc[-1]) + 60_000
+        if len(rows) < lv.request_limit:
+            break
+    if not parts:
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+    m = pd.concat(parts)
+    m = m[~m.index.duplicated()].sort_index()
+    return m[["open", "high", "low", "close", "volume"]]

@@ -58,3 +58,11 @@ def test_fetch_hourly_paginates_and_drops_open_candle(project):
     assert fake.calls >= 3
     assert len(got) == 1000 and got.index[-1] == h.index[-2]
     pd.testing.assert_frame_equal(got, h.iloc[-1001:-1][["open", "high", "low", "close", "volume"]], check_freq=False)
+
+
+def test_fetch_minutes_forward(project):
+    m = load_minute(project, "BTCUSDT")
+    fake = FakeBinance({}, {"BTCUSDT": m})
+    start = m.index[1000]
+    got = live.fetch_minutes("BTCUSDT", project, start, start + pd.Timedelta(minutes=2500), session=fake)
+    assert len(got) == 2500 and got.index[0] == start
