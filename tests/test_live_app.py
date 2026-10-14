@@ -44,6 +44,12 @@ class _Resp:
         return self.rows
 
 
+@pytest.fixture(scope="module")
+def bundle(project):
+    tr.run(project, "logreg")
+    return ev.fit_final(project, "logreg")
+
+
 def test_fetch_hourly_paginates_and_drops_open_candle(project):
     cfg = project
     h = load_hourly(cfg, "BTCUSDT")
@@ -66,3 +72,34 @@ def test_fetch_minutes_forward(project):
     start = m.index[1000]
     got = live.fetch_minutes("BTCUSDT", project, start, start + pd.Timedelta(minutes=2500), session=fake)
     assert len(got) == 2500 and got.index[0] == start
+
+
+def test_live_features_match_training(project, bundle):
+    """Signal built from REST-style candles uses exactly the training features."""
+    cfg = project
+    hourly = {s: load_hourly(cfg, s) for s in ["BTCUSDT", "ETHUSDT"]}
+    t = pd.Timestamp("2024-06-10 12:00", tz="UTC")
+    cut = {s: h[h.index <= t][["open", "high", "low", "close", "volume"]] for s, h in hourly.items()}
+    sig = live.make_signal(cfg, "ETHUSDT", cut, bundle["ETHUSDT"])
+    assert sig.bar_time == t and sig.decision_time == t + pd.Timedelta(hours=1)
+    train_row = load_features(cfg, "ETHUSDT").loc[[t]]
+    direct = ev.bundle_decide(bundle["ETHUSDT"], train_row, np.array([sig.atr / sig.entry]), cfg).iloc[0]
+    assert sig.p_long_win == pytest.approx(direct["long_c_win"])
+    assert sig.p_short_win == pytest.approx(direct["short_c_win"])
+    assert sig.decision in ("LONG", "SHORT", "NO TRADE")
+    text = live.format_signal(sig)
+    assert "ETHUSDT" in text and sig.decision in text
+
+
+def test_signal_levels_for_long(project, bundle):
+    cfg = project
+    hourly = {s: load_hourly(cfg, s)[["open", "high", "low", "close", "volume"]] for s in ["BTCUSDT"]}
+    b = dict(bundle["BTCUSDT"], thresholds={"long": 0.0, "short": np.inf})
+    cfg.decision.timeout_return = 1.0                        # makes EV positive so LONG is chosen
+    try:
+        sig = live.make_signal(cfg, "BTCUSDT", hourly, b)
+    finally:
+        cfg.decision.timeout_return = 0.0
+    assert sig.decision == "LONG"
+    assert sig.tp == pytest.approx(sig.entry + 2 * sig.atr) and sig.sl == pytest.approx(sig.entry - sig.atr)
+    assert "TP" in live.format_signal(sig)
