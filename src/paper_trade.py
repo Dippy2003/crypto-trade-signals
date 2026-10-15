@@ -127,3 +127,46 @@ def run_once(cfg: Config, kind: str | None = None, session=None, now: pd.Timesta
     log = record_signals(cfg, log, kind, session=session, now=now)
     save_log(cfg, log)
     return log
+
+
+def _stats(trades: pd.DataFrame, ret_col: str, t_col: str) -> dict:
+    if trades.empty:
+        return {"trades": 0, "win_rate": np.nan, "mean_ret": np.nan, "total_ret": np.nan,
+                "tp": 0, "sl": 0, "timeout": 0, "per_week": np.nan}
+    r = trades[ret_col].astype(float)
+    t = pd.to_datetime(trades[t_col], utc=True)
+    weeks = max((t.max() - t.min()).total_seconds() / (7 * 86400), 1)
+    reasons = trades["exit_reason"].value_counts()
+    return {"trades": len(trades), "win_rate": float((r > 0).mean()), "mean_ret": float(r.mean()),
+            "total_ret": float(r.sum()), "tp": int(reasons.get("TP", 0)), "sl": int(reasons.get("SL", 0)),
+            "timeout": int(reasons.get("TIMEOUT", 0)), "per_week": len(trades) / weeks}
+
+
+def summary(cfg: Config, kind: str | None = None) -> str:
+    kind = kind or cfg.live.model_kind
+    log = load_log(cfg)
+    closed = log[log["status"] == "CLOSED"]
+    bt_path = resolve_path(cfg, "reports") / f"trades_{kind}.csv"
+    bt = pd.read_csv(bt_path) if bt_path.exists() else pd.DataFrame()
+    paper = _stats(closed, "pnl", "timestamp")
+    back = _stats(bt, "net_ret", "entry_time") if not bt.empty else _stats(pd.DataFrame(), "", "")
+
+    def f(v, pct=True):
+        return "n/a" if v is None or (isinstance(v, float) and np.isnan(v)) else (f"{v:+.3%}" if pct else f"{v:,.2f}")
+
+    lines = ["# Paper trading vs backtest", "",
+             f"Signals logged: {len(log):,} ({(log['status'] == 'NO TRADE').sum():,} no trade, "
+             f"{(log['status'] == 'SKIPPED').sum():,} skipped, {(log['status'] == 'OPEN').sum():,} open, "
+             f"{len(closed):,} closed). Returns are per trade after fees and slippage.", "",
+             "| | Trades | Win rate | Mean trade | Sum of trade returns | TP / SL / timeout | Trades per week |",
+             "|---|---:|---:|---:|---:|---|---:|"]
+    for name, s in [("Paper (live)", paper), (f"Backtest ({kind} walk-forward)", back)]:
+        wr = "n/a" if np.isnan(s["win_rate"]) else f"{s['win_rate']:.1%}"
+        lines.append(f"| {name} | {s['trades']:,} | {wr} | {f(s['mean_ret'])} | {f(s['total_ret'])} | "
+                     f"{s['tp']} / {s['sl']} / {s['timeout']} | {f(s['per_week'], pct=False)} |")
+    if paper["trades"] < 30:
+        lines += ["", f"Only {paper['trades']} closed paper trades: far too few to judge the model."]
+    md = "\n".join(lines) + "\n"
+    path = ensure_dir(resolve_path(cfg, "reports")) / "paper_summary.md"
+    path.write_text(md, encoding="utf-8")
+    return md

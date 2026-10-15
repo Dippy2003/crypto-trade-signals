@@ -61,3 +61,12 @@ def test_open_trade_waits_until_resolved(cfg):
     assert pt.resolve_trade(row, minutes[minutes.index < early], cfg, early) is None
     done = pt.resolve_trade(row, minutes, cfg, t + pd.Timedelta(hours=14))
     assert done["exit_reason"] == "TIMEOUT" and done["minutes"] == 720
+
+
+def test_summary(cfg):
+    log = pd.DataFrame([{"timestamp": pd.Timestamp("2024-05-01", tz="UTC"), "bar_time": pd.Timestamp("2024-04-30 23:00", tz="UTC"),
+                         "symbol": "BTCUSDT", "status": "CLOSED", "decision": "LONG", "exit_reason": "TP", "pnl": 0.01}])
+    pt.save_log(cfg, log.reindex(columns=pt.LOG_COLS))
+    md = pt.summary(cfg, "xgb")
+    assert "Paper (live)" in md and "far too few" in md
+    assert (pt.resolve_path(cfg, "reports") / "paper_summary.md").exists()
